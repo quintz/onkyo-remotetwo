@@ -3,25 +3,25 @@ import logging
 
 import config
 import eiscp
+import ucapi
 from config import AvrDevice
-from ucapi import IntegrationSetup, SetupAction, SetupComplete, SetupDriver, SetupError, UserDataResponse
 
 _LOG = logging.getLogger(__name__)
 
 _discovered_receivers = []
 
 
-async def driver_setup_handler(msg: SetupDriver) -> SetupAction:
+async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
     """Handle driver setup initiation."""
     _LOG.info("Starting setup flow")
 
-    if msg == IntegrationSetup.START:
+    if msg == ucapi.IntegrationSetup.WAIT_USER_ACTION:
         # Start discovery
         global _discovered_receivers
         _discovered_receivers = await eiscp.discover_receivers()
 
         if not _discovered_receivers:
-            return SetupAction(
+            return ucapi.SetupAction(
                 "userInput",
                 {
                     "title": {"en": "No receivers found", "de": "Keine Receiver gefunden"},
@@ -71,7 +71,7 @@ async def driver_setup_handler(msg: SetupDriver) -> SetupAction:
                 }
             })
 
-        return SetupAction(
+        return ucapi.SetupAction(
             "userInput",
             {
                 "title": {"en": "Select receiver", "de": "Receiver auswählen"},
@@ -99,10 +99,10 @@ async def driver_setup_handler(msg: SetupDriver) -> SetupAction:
             }
         )
 
-    return SetupError()
+    return ucapi.SetupError()
 
 
-async def handle_user_data(msg: UserDataResponse) -> SetupAction:
+async def handle_user_data(msg: ucapi.UserDataResponse) -> ucapi.SetupAction:
     """Handle user data from setup."""
     _LOG.info("User data: %s", msg.input_values)
 
@@ -113,12 +113,12 @@ async def handle_user_data(msg: UserDataResponse) -> SetupAction:
     if "address" in msg.input_values:
         address = msg.input_values["address"]
         if not address:
-            return SetupError()
+            return ucapi.SetupError()
     else:
         # Use selected receiver
         receiver_idx = int(msg.input_values.get("receiver", "0"))
         if receiver_idx >= len(_discovered_receivers):
-            return SetupError()
+            return ucapi.SetupError()
 
         selected = _discovered_receivers[receiver_idx]
         address = selected["host"]
@@ -136,6 +136,6 @@ async def handle_user_data(msg: UserDataResponse) -> SetupAction:
     if config.devices:
         config.devices.add(device)
         _LOG.info("Device added: %s", device)
-        return SetupComplete()
+        return ucapi.SetupComplete()
 
-    return SetupError()
+    return ucapi.SetupError()
