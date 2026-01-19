@@ -18,29 +18,33 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
     if msg == ucapi.IntegrationSetup.WAIT_USER_ACTION:
         # Start discovery
         global _discovered_receivers
-        _discovered_receivers = await eiscp.discover_receivers()
+        _LOG.info("Starting discovery...")
+        _discovered_receivers = await eiscp.discover_receivers(timeout=5)
+        _LOG.info("Discovery found %d receivers", len(_discovered_receivers))
 
         if not _discovered_receivers:
+            # No receivers found - show manual setup
+            _LOG.warning("No receivers discovered, showing manual setup")
             return ucapi.SetupAction(
                 "userInput",
                 {
-                    "title": {"en": "No receivers found", "de": "Keine Receiver gefunden"},
+                    "title": {"en": "Manual Setup", "de": "Manuelle Einrichtung"},
                     "fields": [
                         {
-                            "id": "manual_setup",
+                            "id": "info",
                             "label": {
-                                "en": "No Onkyo receivers found. Manual setup required.",
-                                "de": "Keine Onkyo Receiver gefunden. Manuelle Einrichtung erforderlich."
+                                "en": "No Onkyo receivers found automatically. Please enter your receiver's IP address.",
+                                "de": "Keine Onkyo Receiver automatisch gefunden. Bitte gib die IP-Adresse deines Receivers ein."
                             },
                             "field": {
-                                "text": {
+                                "label": {
                                     "value": ""
                                 }
                             }
                         },
                         {
                             "id": "address",
-                            "label": {"en": "IP Address", "de": "IP-Adresse"},
+                            "label": {"en": "Receiver IP Address", "de": "Receiver IP-Adresse"},
                             "field": {
                                 "text": {
                                     "value": ""
@@ -61,6 +65,7 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
             )
 
         # Show discovered receivers
+        _LOG.info("Building receiver selection UI")
         receiver_items = []
         for idx, receiver in enumerate(_discovered_receivers):
             receiver_items.append({
@@ -78,7 +83,7 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
                 "fields": [
                     {
                         "id": "receiver",
-                        "label": {"en": "Receiver", "de": "Receiver"},
+                        "label": {"en": "Discovered Receivers", "de": "Gefundene Receiver"},
                         "field": {
                             "dropdown": {
                                 "value": "0",
@@ -104,24 +109,31 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
 
 async def handle_user_data(msg: ucapi.UserDataResponse) -> ucapi.SetupAction:
     """Handle user data from setup."""
-    _LOG.info("User data: %s", msg.input_values)
+    _LOG.info("User data received: %s", msg.input_values)
 
     address = None
     name = msg.input_values.get("name", "Onkyo AVR")
 
-    # Check if manual setup
+    # Check if manual setup (IP address entered)
     if "address" in msg.input_values:
-        address = msg.input_values["address"]
+        address = msg.input_values["address"].strip()
+        _LOG.info("Manual setup with IP: %s", address)
+        
         if not address:
+            _LOG.error("No IP address provided")
             return ucapi.SetupError()
     else:
-        # Use selected receiver
+        # Use selected receiver from discovery
         receiver_idx = int(msg.input_values.get("receiver", "0"))
+        _LOG.info("Selected receiver index: %d", receiver_idx)
+        
         if receiver_idx >= len(_discovered_receivers):
+            _LOG.error("Invalid receiver index: %d (max: %d)", receiver_idx, len(_discovered_receivers) - 1)
             return ucapi.SetupError()
 
         selected = _discovered_receivers[receiver_idx]
         address = selected["host"]
+        _LOG.info("Using discovered receiver at: %s", address)
 
     # Create device
     device_id = address.replace(".", "_")
@@ -134,8 +146,10 @@ async def handle_user_data(msg: ucapi.UserDataResponse) -> ucapi.SetupAction:
 
     # Add to configuration
     if config.devices:
+        _LOG.info("Adding device: %s (ID: %s, IP: %s)", name, device_id, address)
         config.devices.add(device)
-        _LOG.info("Device added: %s", device)
+        _LOG.info("Device added successfully")
         return ucapi.SetupComplete()
-
+    
+    _LOG.error("Config.devices not initialized!")
     return ucapi.SetupError()

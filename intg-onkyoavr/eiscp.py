@@ -145,58 +145,83 @@ class OnkyoEISCP:
 async def discover_receivers(timeout: int = DISCOVERY_TIMEOUT) -> list:
     """Discover Onkyo receivers on network."""
     receivers = []
+    
+    _LOG.info("Starting receiver discovery (timeout: %ds)", timeout)
 
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.settimeout(timeout)
-
-        discover_msg = b"!xECNQSTN\r\n"
-        header = struct.pack(
-            "!4sIIBBBB",
-            b"ISCP",
-            16,
-            len(discover_msg),
-            1,
-            0, 0, 0
+        # Create UDP socket for discovery
+        loop = asyncio.get_event_loop()
+        transport, protocol = await loop.create_datagram_endpoint(
+            lambda: DiscoveryProtocol(receivers),
+            local_addr=('0.0.0.0', 0),
+            allow_broadcast=True
         )
-        packet = header + discover_msg
 
-        _LOG.info("Broadcasting discovery...")
-        sock.sendto(packet, ("<broadcast>", DISCOVERY_PORT))
+        try:
+            # Build discovery packet
+            discover_msg = b"!xECNQSTN\r\n"
+            header = struct.pack(
+                "!4sIIBBBB",
+                b"ISCP",
+                16,
+                len(discover_msg),
+                1,
+                0, 0, 0
+            )
+            packet = header + discover_msg
 
-        start_time = asyncio.get_event_loop().time()
-        while asyncio.get_event_loop().time() - start_time < timeout:
-            try:
-                data, addr = sock.recvfrom(1024)
+            # Send broadcast
+            _LOG.info("Broadcasting discovery packet...")
+            transport.sendto(packet, ('<broadcast>', DISCOVERY_PORT))
+            
+            # Also try specific subnet broadcasts (common home networks)
+            for subnet in ['192.168.1.255', '192.168.0.255', '192.168.178.255', '10.0.0.255']:
+                try:
+                    transport.sendto(packet, (subnet, DISCOVERY_PORT))
+                except Exception:
+                    pass
 
-                if len(data) > 16 and data[:4] == b"ISCP":
-                    response = data[16:].decode("utf-8", errors="ignore")
+            # Wait for responses
+            await asyncio.sleep(timeout)
 
-                    if "ECN" in response:
-                        parts = response.split("/")
-                        model = parts[0].replace("!1ECN", "").strip() if parts else "Unknown"
-
-                        receiver_info = {
-                            "host": addr[0],
-                            "port": EISCP_PORT,
-                            "model": model,
-                        }
-
-                        if receiver_info not in receivers:
-                            receivers.append(receiver_info)
-                            _LOG.info("Discovered: %s at %s", model, addr[0])
-
-            except socket.timeout:
-                break
-            except Exception as e:
-                _LOG.debug("Discovery error: %s", e)
-                break
-
-        sock.close()
+        finally:
+            transport.close()
 
     except Exception as e:
         _LOG.error("Discovery failed: %s", e)
 
-    _LOG.info("Found %d receiver(s)", len(receivers))
+    _LOG.info("Discovery complete. Found %d receiver(s)", len(receivers))
     return receivers
+
+
+class DiscoveryProtocol(asyncio.DatagramProtocol):
+    """Protocol for handling discovery responses."""
+
+    def __init__(self, receivers_list):
+        """Initialize protocol."""
+        self.receivers = receivers_list
+
+    def datagram_received(self, data, addr):
+        """Handle received datagram."""
+        try:
+            if len(data) > 16 and data[:4] == b"ISCP":
+                response = data[16:].decode("utf-8", errors="ignore")
+
+                if "ECN" in response:
+                    # Parse model name
+                    parts = response.split("/")
+                    model = parts[0].replace("!1ECN", "").strip() if parts else "Unknown"
+
+                    receiver_info = {
+                        "host": addr[0],
+                        "port": EISCP_PORT,
+                        "model": model,
+                    }
+
+                    # Check if already found
+                    if not any(r["host"] == addr[0] for r in self.receivers):
+                        self.receivers.append(receiver_info)
+                        _LOG.info("Discovered: %s at %s", model, addr[0])
+
+        except Exception as e:
+            _LOG.debug("Error parsing discovery response: %s", e)
