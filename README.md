@@ -1,122 +1,104 @@
-# Onkyo AVR Integration for Unfolded Circle Remote Two
+# Onkyo AVR integration for Remote Two/3
 
-Integration for Onkyo AV Receivers using the eISCP protocol.
+Control your Onkyo AV Receivers with the Unfolded Circle Remote Two/3.
+
+This integration uses the eISCP (Ethernet Integra Serial Control Protocol) to communicate with Onkyo receivers over the network.
 
 ## Features
 
-✅ Automatic network discovery  
-✅ Power control (On/Off)  
-✅ Volume control (0-100%)  
-✅ Mute control  
-✅ Input source selection  
-✅ Real-time status updates  
+- Automatic network discovery of Onkyo receivers
+- Manual configuration by IP address
+- Power control (on/off)
+- Volume control (including mute)
+- Input source selection
+- Real-time status updates via eISCP protocol
 
-## Supported Models
+## Supported Receivers
 
-All Onkyo receivers with eISCP protocol support, including:
+This integration should work with most Onkyo receivers that support network control via eISCP protocol, including:
 
-- TX-NR696
-- TX-NR686  
-- TX-RZ50
-- And many more eISCP-compatible models
+- TX-NR series (e.g., TX-NR696, TX-NR686, TX-NR676)
+- TX-RZ series
+- And many others with network capabilities
+
+## Requirements
+
+- Onkyo receiver with network connection
+- Network Control enabled on the receiver
+- Same network as Remote Two/3
 
 ## Installation
 
-### Prerequisites
+This integration is designed to be installed as a custom integration on your Remote Two/3.
 
-- Unfolded Circle Remote Two with firmware v1.9.0+
-- Onkyo receiver on the same network
-- Receiver's "Network Control" must be set to "Always On"
+### From Release
 
-### Steps
+1. Download the latest `.tar.gz` file from [Releases](https://github.com/quintz/integration-onkyoavr/releases)
+2. Open your Remote Two/3 web configurator
+3. Go to Settings → Integrations
+4. Click "Install" and upload the `.tar.gz` file
 
-1. **Download** the latest release: `ucr2-intg-onkyo-X.X.X.tar.gz`
+### From Source
 
-2. **Open Remote web configurator**:
-   ```
-   http://[YOUR-REMOTE-IP]
-   ```
+Build the integration package:
 
-3. **Install integration**:
-   - Settings → Integrations → Install
-   - Upload the .tar.gz file
-   - Wait for installation to complete
+```bash
+docker run --rm --name builder \
+    --platform=linux/arm64 \
+    --user=$(id -u):$(id -g) \
+    -v "$PWD":/workspace \
+    docker.io/unfoldedcircle/r2-pyinstaller:3.11.13 \
+    bash -c \
+      "PYTHON_VERSION=\$(python --version | cut -d' ' -f2 | cut -d. -f1,2) && \
+      python -m pip install --user -r requirements.txt && \
+      PYTHONPATH=~/.local/lib/python\${PYTHON_VERSION}/site-packages:\$PYTHONPATH pyinstaller --clean --onedir --name driver -y \
+        intg-onkyoavr/driver.py"
+```
 
-4. **Setup receiver**:
-   - Integration will automatically discover your receiver
-   - Select your receiver from the list
-   - Give it a name
-   - Done!
+## Setup
 
-## Building from Source
+1. Ensure your Onkyo receiver is powered on and connected to your network
+2. Add the Onkyo AVR integration in Remote Two/3
+3. The integration will automatically discover receivers on your network
+4. Select your receiver from the list
+5. Give it a name and complete setup
+
+If automatic discovery doesn't find your receiver:
+- Use manual setup with the receiver's IP address
+- Ensure the receiver's Network Control is enabled
+- Check that the receiver is on the same network/VLAN
+
+## Supported Commands
+
+- Power On/Off
+- Volume Up/Down
+- Volume Set (0-100%)
+- Mute/Unmute
+- Input Source Selection
+- Toggle Power
+
+## Configuration
+
+The integration stores device configuration in `config.json` in the integration's data directory.
+
+## Development
 
 ### Requirements
 
-- Docker
-- Linux or macOS (for ARM64 build)
-
-### Build
-
-```bash
-./build.sh
-```
-
-This will:
-1. Build Python binary with PyInstaller
-2. Create proper directory structure
-3. Package as .tar.gz
-
-## Development
+- Python 3.11+
+- Docker (for building distribution)
 
 ### Local Testing
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run integration
-UC_CONFIG_HOME=./config python intg-onkyo/driver.py
+pip3 install -r requirements.txt
+python3 intg-onkyoavr/driver.py
 ```
-
-### Structure
-
-```
-onkyo-integration/
-├── intg-onkyo/          # Python source
-│   ├── driver.py        # Main driver
-│   ├── receiver.py      # eISCP protocol
-│   ├── media_player.py  # Media player entity
-│   └── const.py         # Constants
-├── driver.json          # Integration metadata
-├── build.sh             # Build script
-└── requirements.txt     # Dependencies
-```
-
-## Troubleshooting
-
-### Receiver not found
-
-1. Ensure receiver is powered on
-2. Check "Network Control" is "Always On"
-3. Verify same network/VLAN
-4. Try manual IP configuration
-
-### Cannot connect
-
-1. Check receiver IP address
-2. Verify port 60128 is accessible
-3. Restart receiver
-4. Check integration logs
 
 ## License
 
-MIT License
+This project is licensed under the Mozilla Public License 2.0 - see [LICENSE](LICENSE) file for details.
 
 ## Credits
 
-Created by Quirin for the Unfolded Circle community.
-
-## Support
-
-- GitHub Issues: Bug reports & features
-- Unfolded Circle Forum: Community support
+Structure and approach inspired by the [Denon AVR integration](https://github.com/unfoldedcircle/integration-denonavr) by Unfolded Circle.

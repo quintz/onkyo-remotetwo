@@ -10,17 +10,24 @@ dist/
 downloads/
 eggs/
 .eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Virtual Environment
 venv/
 ENV/
 env/
-
-# PyInstaller
-*.spec
-*.manifest
-*.spec.bak
 
 # IDE
 .vscode/
@@ -33,9 +40,11 @@ env/
 .DS_Store
 Thumbs.db
 
-# Integration
-config/
-data/
+# Configuration
+config.json
+
+# Logs
 *.log
-*.tar.gz
-*.zip
+
+# Build artifacts
+ucr2-intg-onkyoavr-*.tar.gz
