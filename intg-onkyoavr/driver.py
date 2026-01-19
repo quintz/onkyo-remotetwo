@@ -281,6 +281,19 @@ async def main():
     logging.getLogger("setup_flow").setLevel(level)
 
     _LOG.info("Starting Onkyo integration driver v0.1.0")
+    
+    # Set listen address to 0.0.0.0 for custom integrations
+    # This allows the Remote to connect from outside localhost
+    if "UC_INTEGRATION_LISTEN_IP" not in os.environ:
+        os.environ["UC_INTEGRATION_LISTEN_IP"] = "0.0.0.0"
+    
+    # Set port if not already set
+    if "UC_INTEGRATION_HTTP_PORT" not in os.environ:
+        os.environ["UC_INTEGRATION_HTTP_PORT"] = "9092"
+
+    _LOG.info("Listening on %s:%s", 
+              os.getenv("UC_INTEGRATION_LISTEN_IP", "0.0.0.0"),
+              os.getenv("UC_INTEGRATION_HTTP_PORT", "9092"))
 
     # Initialize configuration
     config.devices = config.Devices(api.config_dir_path, on_device_added, on_device_removed)

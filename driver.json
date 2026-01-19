@@ -9,7 +9,6 @@
   "description": {
     "_comment": "set at runtime"
   },
-  "port": 9092,
   "developer": {
     "name": "Quirin",
     "email": "quirin@lippls.de",
