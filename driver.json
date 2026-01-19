@@ -1,0 +1,28 @@
+{
+  "driver_id": "onkyo",
+  "version": "0.1.0",
+  "min_core_api": "0.20.0",
+  "name": {
+    "en": "Onkyo AVR",
+    "de": "Onkyo AVR"
+  },
+  "icon": "uc:integration",
+  "description": {
+    "en": "Control Onkyo AV Receivers via eISCP protocol. Automatically discovers receivers and provides control over power, volume, mute, and input selection.",
+    "de": "Steuerung von Onkyo AV-Receivern über eISCP-Protokoll. Findet automatisch Receiver und bietet Kontrolle über Power, Lautstärke, Stummschaltung und Eingangsauswahl."
+  },
+  "developer": {
+    "name": "Quirin",
+    "email": "",
+    "url": "https://github.com/yourusername/ucr2-onkyo"
+  },
+  "home_page": "https://github.com/yourusername/ucr2-onkyo",
+  "setup_data_schema": {
+    "title": {
+      "en": "Onkyo AVR Setup",
+      "de": "Onkyo AVR Einrichtung"
+    },
+    "settings": []
+  },
+  "release_date": "2025-01-18"
+}
