@@ -1,23 +1,19 @@
 {
   "driver_id": "onkyoavr",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "min_core_api": "0.20.0",
   "name": {
     "en": "Onkyo AVR"
   },
   "icon": "uc:tv-music",
   "description": {
-    "_comment": "set at runtime"
+    "en": "Control Onkyo AV Receivers"
   },
-  "device_discovery": true,
   "developer": {
     "name": "Quirin",
     "email": "quirin@lippls.de",
     "url": "https://github.com/quintz"
   },
   "home_page": "https://github.com/quintz/integration-onkyoavr",
-  "setup_data_schema": {
-    "_comment": "set at runtime"
-  },
-  "release_date": "2025-01-19"
+  "release_date": "2025-01-20"
 }

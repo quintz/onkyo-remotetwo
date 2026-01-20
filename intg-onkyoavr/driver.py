@@ -289,7 +289,7 @@ async def main():
     logging.getLogger("media_player").setLevel(level)
     logging.getLogger("setup_flow").setLevel(level)
 
-    _LOG.info("Starting Onkyo integration driver v0.1.0")
+    _LOG.info("Starting Onkyo integration driver v0.2.0 (manual setup only)")
     _LOG.info("Network: %s:%s", 
               os.getenv("UC_INTEGRATION_LISTEN_IP", "default"),
               os.getenv("UC_INTEGRATION_HTTP_PORT", "default"))
