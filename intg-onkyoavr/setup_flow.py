@@ -64,11 +64,11 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
         _LOG.info("Starting manual setup flow - showing input form")
         
         return ucapi.RequestUserInput(
-            {"en": "Add Onkyo Receiver", "de": "Onkyo Receiver hinzufügen"},
+            "Add Onkyo Receiver",
             [
                 {
                     "id": "address",
-                    "label": {"en": "IP Address", "de": "IP-Adresse"},
+                    "label": "IP Address",
                     "field": {
                         "text": {
                             "value": ""
@@ -77,7 +77,7 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
                 },
                 {
                     "id": "name",
-                    "label": {"en": "Name", "de": "Name"},
+                    "label": "Name",
                     "field": {
                         "text": {
                             "value": "Onkyo AVR"
