@@ -39,19 +39,21 @@ CMD_VOLUME = "MVL"
 CMD_MUTE = "AMT"
 CMD_INPUT = "SLI"
 
-# Input Sources for Onkyo receivers
+# Input Sources for Onkyo receivers (TX-NR696 and similar)
 INPUT_SOURCES = {
     "00": "VIDEO1",
-    "01": "VIDEO2",
-    "02": "VIDEO3",
-    "03": "VIDEO4",
+    "01": "CBL/SAT",
+    "02": "GAME",
+    "03": "AUX",
     "04": "VIDEO5",
-    "05": "VIDEO6",
+    "05": "PC",
     "06": "VIDEO7",
     "07": "HIDDEN1",
     "08": "HIDDEN2",
     "09": "HIDDEN3",
-    "10": "DVD",
+    "10": "BD/DVD",
+    "11": "STRM BOX",
+    "12": "TV",
     "20": "TAPE1",
     "21": "TAPE2",
     "22": "PHONO",
@@ -67,10 +69,12 @@ INPUT_SOURCES = {
     "2C": "USB_TOGGLE",
     "2D": "BLUETOOTH",
     "2E": "AIRPLAY",
+    "2F": "USB_DAC",
     "40": "UNIVERSAL_PORT",
     "30": "MULTI_CH",
     "31": "XM",
     "32": "SIRIUS",
+    "33": "DAB",
     "80": "SOURCE",
     "81": "BD/DVD",
     "82": "GAME",
