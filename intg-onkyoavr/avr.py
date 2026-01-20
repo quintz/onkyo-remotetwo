@@ -199,8 +199,8 @@ class OnkyoDevice:
         """Handle volume update."""
         try:
             vol_int = int(value, 16)
-            self._volume = int((vol_int / 80) * 100)  # 0-80 -> 0-100
-            _LOG.debug("[%s] Volume: %d%%", self.id, self._volume)
+            self._volume = vol_int  # 1:1 mapping (0-80)
+            _LOG.debug("[%s] Volume: %d", self.id, self._volume)
             self.events.emit(Events.UPDATE, self.id, {"volume": self._volume})
         except ValueError:
             _LOG.warning("[%s] Invalid volume: %s", self.id, value)
@@ -233,8 +233,9 @@ class OnkyoDevice:
         await self._eiscp.send_command(CMD_POWER, "00")
 
     async def set_volume_level(self, volume: int):
-        """Set volume (0-100)."""
-        onkyo_vol = int((volume / 100) * 80)  # 0-100 -> 0-80
+        """Set volume (0-80)."""
+        # Clamp to valid range
+        onkyo_vol = max(0, min(80, volume))
         vol_hex = format(onkyo_vol, "02X")
         await self._eiscp.send_command(CMD_VOLUME, vol_hex)
 
