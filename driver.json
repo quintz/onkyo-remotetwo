@@ -9,6 +9,38 @@
   "description": {
     "en": "Control Onkyo AV Receivers"
   },
+  "setup_data_schema": {
+    "title": {
+      "en": "Add Onkyo Receiver",
+      "de": "Onkyo Receiver hinzufügen"
+    },
+    "settings": [
+      {
+        "id": "address",
+        "label": {
+          "en": "IP Address",
+          "de": "IP-Adresse"
+        },
+        "field": {
+          "text": {
+            "value": ""
+          }
+        }
+      },
+      {
+        "id": "name",
+        "label": {
+          "en": "Name",
+          "de": "Name"
+        },
+        "field": {
+          "text": {
+            "value": "Onkyo AVR"
+          }
+        }
+      }
+    ]
+  },
   "developer": {
     "name": "Quirin",
     "email": "quirin@lippls.de",
