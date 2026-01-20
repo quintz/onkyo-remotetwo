@@ -116,6 +116,11 @@ class Devices:
 
     def store(self) -> None:
         """Store configuration to file."""
+        # Don't create config file if no devices configured
+        if not self._devices:
+            _LOG.debug("No devices to store, skipping config file creation")
+            return
+            
         try:
             os.makedirs(os.path.dirname(self._config_file), exist_ok=True)
 
