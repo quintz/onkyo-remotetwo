@@ -84,8 +84,14 @@ class OnkyoMediaPlayer(MediaPlayer):
             self.attributes.update(update)
             self._api.configured_entities.update_attributes(self.id, update)
 
-    async def command(self, cmd_id: str, params: dict[str, Any] | None = None, **kwargs) -> StatusCodes:
-        """Handle commands."""
+    async def command(self, cmd_id: str, params: dict[str, Any] | None = None, entity_type: str | None = None) -> StatusCodes:
+        """
+        Handle commands from Remote Two.
+        
+        :param cmd_id: The command identifier
+        :param params: Optional command parameters
+        :param entity_type: The entity type (new parameter in ucapi >= 0.5.0)
+        """
         _LOG.info("[%s] Command: %s %s", self.id, cmd_id, params)
 
         try:
