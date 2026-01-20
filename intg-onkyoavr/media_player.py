@@ -84,7 +84,7 @@ class OnkyoMediaPlayer(MediaPlayer):
             self.attributes.update(update)
             self._api.configured_entities.update_attributes(self.id, update)
 
-    async def command(self, cmd_id: str, params: dict[str, Any] | None = None) -> StatusCodes:
+    async def command(self, cmd_id: str, params: dict[str, Any] | None = None, **kwargs) -> StatusCodes:
         """Handle commands."""
         _LOG.info("[%s] Command: %s %s", self.id, cmd_id, params)
 
