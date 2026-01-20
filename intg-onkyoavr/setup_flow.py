@@ -18,7 +18,7 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
     
     # IMPORTANT: Check for UserDataResponse FIRST (before SetupDriver)
     # because UserDataResponse might inherit from SetupDriver
-    if isinstance(msg, ucapi.SetupUserDataResponse):
+    if isinstance(msg, ucapi.UserDataResponse):
         _LOG.info("=== User data received ===")
         _LOG.info("Input values: %s", msg.input_values)
         
