@@ -53,20 +53,14 @@ class OnkyoRemote(ucapi.Remote):
             Attributes.STATE: States.OFF,
         }
 
-        # NOTE: simple_commands are set via entity options after creation
-        # The ucapi 0.5.1 Remote class doesn't accept options in __init__
-        
+        # Initialize with simple_commands parameter (not options!)
         super().__init__(
             entity_id,
             f"{device.name} Remote",
             features,
             attributes,
+            simple_commands=SIMPLE_COMMANDS,  # ← Korrekter Parameter!
         )
-        
-        # Set simple commands after initialization
-        self.options = {
-            "simple_commands": SIMPLE_COMMANDS,
-        }
 
     def update_state(self, state: str):
         """
