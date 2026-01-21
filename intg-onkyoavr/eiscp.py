@@ -112,6 +112,9 @@ class OnkyoEISCP:
                                 callback(cmd, value)
                             except Exception as e:
                                 _LOG.error("Callback error for %s: %s", cmd, e)
+                    else:
+                        # Log unknown commands but don't crash
+                        _LOG.debug("Unhandled command: %s=%s", cmd, value)
 
             except asyncio.CancelledError:
                 break
