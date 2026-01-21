@@ -141,7 +141,7 @@ class Devices:
 devices: Devices | None = None
 
 
-def create_entity_id(avr_id: str, entity_type: str, suffix: str = "") -> str:
+def create_entity_id(avr_id: str, entity_type, suffix: str = "") -> str:
     """Create entity ID."""
     if suffix:
         return f"{entity_type}.onkyo_{avr_id}_{suffix}"
@@ -164,8 +164,10 @@ def avr_from_entity_id(entity_id: str) -> str | None:
 
     avr_id = entity_part[6:]  # Remove "onkyo_" prefix
 
-    # Remove any suffix (like _main, _zone2, etc.)
-    if "_" in avr_id:
-        avr_id = avr_id.split("_")[0]
+    # Remove any suffix (like _main, _zone2, _remote etc.)
+    for known_suffix in ["_remote", "_main", "_zone2", "_zone3"]:
+        if avr_id.endswith(known_suffix):
+            avr_id = avr_id[:-len(known_suffix)]
+            break
 
     return avr_id

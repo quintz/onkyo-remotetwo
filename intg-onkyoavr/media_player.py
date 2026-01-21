@@ -10,7 +10,7 @@ from typing import Any
 
 import ucapi
 from ucapi import EntityTypes, StatusCodes
-from ucapi.media_player import Attributes, Commands, Features, MediaType, Options, MediaPlayer, States
+from ucapi.media_player import Attributes, Commands, Features, MediaType, States
 
 from config import AvrDevice, create_entity_id
 from const import States as AvrStates, MEDIA_PLAYER_FEATURES
@@ -18,7 +18,7 @@ from const import States as AvrStates, MEDIA_PLAYER_FEATURES
 _LOG = logging.getLogger(__name__)
 
 
-class OnkyoMediaPlayer(MediaPlayer):
+class OnkyoMediaPlayer(ucapi.MediaPlayer):
     """Onkyo media player entity."""
 
     def __init__(

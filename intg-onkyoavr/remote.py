@@ -10,7 +10,7 @@ from typing import Any
 
 import ucapi
 from ucapi import EntityTypes, StatusCodes
-from ucapi.remote import Attributes, Commands, Features, Options, Remote, States
+from ucapi.remote import Attributes, Commands, Features, States
 
 from config import AvrDevice, create_entity_id
 from const import SIMPLE_COMMANDS, SIMPLE_COMMAND_MAP
@@ -18,7 +18,7 @@ from const import SIMPLE_COMMANDS, SIMPLE_COMMAND_MAP
 _LOG = logging.getLogger(__name__)
 
 
-class OnkyoRemote(Remote):
+class OnkyoRemote(ucapi.Remote):
     """Onkyo remote entity for simple commands."""
 
     def __init__(
@@ -53,18 +53,20 @@ class OnkyoRemote(Remote):
             Attributes.STATE: States.OFF,
         }
 
-        # Options with simple commands
-        options = {
-            Options.SIMPLE_COMMANDS: SIMPLE_COMMANDS,
-        }
-
+        # NOTE: simple_commands are set via entity options after creation
+        # The ucapi 0.5.1 Remote class doesn't accept options in __init__
+        
         super().__init__(
             entity_id,
             f"{device.name} Remote",
             features,
             attributes,
-            options=options,
         )
+        
+        # Set simple commands after initialization
+        self.options = {
+            "simple_commands": SIMPLE_COMMANDS,
+        }
 
     def update_state(self, state: str):
         """
