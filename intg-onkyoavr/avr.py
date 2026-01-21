@@ -1,202 +1,63 @@
-"""Onkyo AVR device representation."""
+"""
+Onkyo AVR device representation.
+
+:copyright: (c) 2025 by Quirin.
+:license: Mozilla Public License Version 2.0, see LICENSE for more details.
+"""
+
 import asyncio
 import logging
-from enum import IntEnum
 from typing import Any
 
 from pyee.asyncio import AsyncIOEventEmitter
 
 import eiscp
 from config import AvrDevice
+from const import (
+    Events,
+    States,
+    CMD_POWER,
+    CMD_VOLUME,
+    CMD_MUTE,
+    CMD_INPUT,
+    CMD_LISTENING_MODE,
+    CMD_AUDIO_INFO,
+    CMD_VIDEO_INFO,
+    CMD_DIMMER,
+    CMD_DISPLAY,
+    CMD_LATE_NIGHT,
+    CMD_SLEEP,
+    CMD_NET_USB_PLAY,
+    CMD_NET_USB_STATUS,
+    CMD_NET_USB_TITLE,
+    CMD_NET_USB_ARTIST,
+    CMD_NET_USB_ALBUM,
+    CMD_NET_USB_TIME,
+    CMD_HDMI_OUTPUT,
+    CMD_SPEAKER_A,
+    CMD_SPEAKER_B,
+    CMD_ZONE2_POWER,
+    CMD_ZONE2_VOLUME,
+    CMD_ZONE2_MUTE,
+    INPUT_SOURCES,
+    SOURCE_TO_CODE,
+    LISTENING_MODES,
+    LISTENING_MODE_TO_CODE,
+)
 
 _LOG = logging.getLogger(__name__)
-
-# Version
-VERSION = "0.2.1"
-
-
-class Events(IntEnum):
-    """Internal driver events."""
-
-    CONNECTED = 0
-    DISCONNECTED = 1
-    ERROR = 2
-    UPDATE = 3
-    IP_ADDRESS_CHANGED = 4
-
-
-class States(str):
-    """AVR states."""
-
-    ON = "ON"
-    OFF = "OFF"
-    PLAYING = "PLAYING"
-    PAUSED = "PAUSED"
-    UNKNOWN = "UNKNOWN"
-    UNAVAILABLE = "UNAVAILABLE"
-
-
-# =============================================================================
-# eISCP Command Codes
-# =============================================================================
-
-# Main Commands
-CMD_POWER = "PWR"          # System Power
-CMD_VOLUME = "MVL"         # Master Volume
-CMD_MUTE = "AMT"           # Audio Muting
-CMD_INPUT = "SLI"          # Input Selector
-
-# Additional Commands (for reference/future use)
-CMD_SPEAKER_A = "SPA"      # Speaker A
-CMD_SPEAKER_B = "SPB"      # Speaker B
-CMD_DIMMER = "DIM"         # Dimmer Level
-CMD_DISPLAY = "DIF"        # Display Mode
-CMD_AUDIO_INFO = "IFA"     # Audio Information
-CMD_VIDEO_INFO = "IFV"     # Video Information
-CMD_LISTENING_MODE = "LMD" # Listening Mode
-CMD_LATE_NIGHT = "LTN"     # Late Night
-CMD_AUDYSSEY = "ADY"       # Audyssey
-CMD_AUDYSSEY_EQ = "ADQ"    # Audyssey Dynamic EQ
-CMD_AUDYSSEY_VOL = "ADV"   # Audyssey Dynamic Volume
-CMD_TONE_BASS = "TFR"      # Tone Front Bass
-CMD_TONE_TREBLE = "TFT"    # Tone Front Treble
-CMD_SLEEP = "SLP"          # Sleep Timer
-CMD_HDR_OUTPUT = "HDO"     # HDR Output
-CMD_NETWORK_STANDBY = "NSB" # Network Standby
-
-# Zone 2 Commands
-CMD_ZONE2_POWER = "ZPW"    # Zone 2 Power
-CMD_ZONE2_VOLUME = "ZVL"   # Zone 2 Volume
-CMD_ZONE2_MUTE = "ZMT"     # Zone 2 Mute
-CMD_ZONE2_INPUT = "SLZ"    # Zone 2 Input Selector
-
-# Zone 3 Commands
-CMD_ZONE3_POWER = "PW3"    # Zone 3 Power
-CMD_ZONE3_VOLUME = "VL3"   # Zone 3 Volume
-CMD_ZONE3_MUTE = "MT3"     # Zone 3 Mute
-CMD_ZONE3_INPUT = "SL3"    # Zone 3 Input Selector
-
-# Network/USB Commands
-CMD_NET_USB_TITLE = "NTI"  # NET/USB Title Name
-CMD_NET_USB_ARTIST = "NAT" # NET/USB Artist Name
-CMD_NET_USB_ALBUM = "NAL"  # NET/USB Album Name
-CMD_NET_USB_TIME = "NTM"   # NET/USB Time Info
-CMD_NET_USB_TRACK = "NTR"  # NET/USB Track Info
-CMD_NET_USB_PLAY = "NTC"   # NET/USB Control (Play/Pause/Stop)
-CMD_NET_USB_STATUS = "NST" # NET/USB Play Status
-
-# Tuner Commands
-CMD_TUNER_FREQ = "TUN"     # Tuner Frequency
-CMD_TUNER_PRESET = "PRS"   # Tuner Preset
-
-
-# =============================================================================
-# Input Sources - Complete list for all Onkyo receivers
-# =============================================================================
-
-INPUT_SOURCES = {
-    # Standard Video/Audio Inputs
-    "00": "VIDEO1",
-    "01": "CBL/SAT",
-    "02": "GAME",
-    "03": "AUX",
-    "04": "AUX2",
-    "05": "PC",
-    "06": "VIDEO6",
-    "07": "VIDEO7",
-    
-    # BD/DVD and Streaming
-    "10": "BD/DVD",
-    "11": "STRM BOX",
-    "12": "TV",
-    "13": "TAPE1",
-    "14": "TAPE2",
-    
-    # Audio Inputs
-    "20": "PHONO",
-    "21": "TV/CD",
-    "22": "TUNER",
-    "23": "CD",
-    "24": "FM",
-    "25": "AM",
-    "26": "TUNER",
-    "27": "MUSIC SERVER",
-    "28": "INTERNET RADIO",
-    "29": "USB FRONT",
-    "2A": "USB REAR",
-    "2B": "NETWORK",
-    "2C": "USB TOGGLE",
-    "2D": "BLUETOOTH",
-    "2E": "AIRPLAY",
-    "2F": "USB DAC",
-    
-    # Multi-channel and Special
-    "30": "MULTI CH",
-    "31": "XM",
-    "32": "SIRIUS",
-    "33": "DAB",
-    "34": "WIDE FM",
-    
-    # Universal Port
-    "40": "UNIVERSAL PORT",
-    "41": "LINE",
-    "42": "LINE2",
-    "43": "MIC",
-    "44": "MICROPHONE",
-    "45": "SPEAKER",
-    
-    # Selector Position Names (some receivers use these)
-    "80": "SOURCE",
-    
-    # Additional mappings for compatibility
-    "55": "HDMI5",
-    "56": "HDMI6",
-    "57": "HDMI7",
-}
-
-# Reverse mapping: Name -> Code
-SOURCE_TO_CODE = {v: k for k, v in INPUT_SOURCES.items()}
-
-
-# =============================================================================
-# Listening Modes (for future use)
-# =============================================================================
-
-LISTENING_MODES = {
-    "00": "STEREO",
-    "01": "DIRECT",
-    "02": "SURROUND",
-    "03": "FILM",
-    "04": "THX",
-    "05": "ACTION",
-    "06": "MUSICAL",
-    "07": "MONO MOVIE",
-    "08": "ORCHESTRA",
-    "09": "UNPLUGGED",
-    "0A": "STUDIO-MIX",
-    "0B": "TV LOGIC",
-    "0C": "ALL CH STEREO",
-    "0D": "THEATER-DIMENSIONAL",
-    "0E": "ENHANCED 7/ENHANCE",
-    "0F": "MONO",
-    "11": "PURE AUDIO",
-    "12": "MULTIPLEX",
-    "13": "FULL MONO",
-    "14": "DOLBY VIRTUAL",
-    "40": "DOLBY SURROUND",
-    "41": "DTS SURROUND SENSATION",
-    "42": "AUDYSSEY DSX",
-    "80": "DOLBY ATMOS",
-    "81": "DTS:X",
-    "82": "DOLBY ATMOS/DTS:X",
-}
 
 
 class OnkyoDevice:
     """Represents an Onkyo AVR device."""
 
     def __init__(self, device_config: AvrDevice, loop=None):
-        """Initialize Onkyo device."""
+        """
+        Initialize Onkyo device.
+        
+        :param device_config: Device configuration
+        :param loop: Event loop (optional)
+        """
         self.id = device_config.id
         self._device_config = device_config
         self._loop = loop or asyncio.get_event_loop()
@@ -205,37 +66,54 @@ class OnkyoDevice:
         self._eiscp = eiscp.OnkyoEISCP(device_config.address, eiscp.EISCP_PORT)
         self._active = False
 
-        # State
+        # Main State
         self._state = States.OFF
         self._volume = 0
         self._muted = False
         self._source = ""
         self._source_list = list(INPUT_SOURCES.values())
+        
+        # Extended State
+        self._listening_mode = ""
+        self._listening_mode_list = list(LISTENING_MODES.values())
+        self._title = ""
+        self._artist = ""
+        self._album = ""
+        self._media_position = 0
+        self._media_duration = 0
 
-        # Register eISCP callbacks for known commands
+        # Register eISCP callbacks
+        self._register_callbacks()
+
+    def _register_callbacks(self):
+        """Register all eISCP callbacks."""
+        # Main commands
         self._eiscp.register_callback(CMD_POWER, self._on_power_update)
         self._eiscp.register_callback(CMD_VOLUME, self._on_volume_update)
         self._eiscp.register_callback(CMD_MUTE, self._on_mute_update)
         self._eiscp.register_callback(CMD_INPUT, self._on_input_update)
+        self._eiscp.register_callback(CMD_LISTENING_MODE, self._on_listening_mode_update)
         
-        # Register callbacks for additional commands to prevent errors
+        # Info commands
         self._eiscp.register_callback(CMD_AUDIO_INFO, self._on_audio_info)
         self._eiscp.register_callback(CMD_VIDEO_INFO, self._on_video_info)
-        self._eiscp.register_callback(CMD_LISTENING_MODE, self._on_listening_mode)
-        self._eiscp.register_callback(CMD_DIMMER, self._on_generic_update)
-        self._eiscp.register_callback(CMD_DISPLAY, self._on_generic_update)
-        self._eiscp.register_callback(CMD_SPEAKER_A, self._on_generic_update)
-        self._eiscp.register_callback(CMD_SPEAKER_B, self._on_generic_update)
-        self._eiscp.register_callback(CMD_SLEEP, self._on_generic_update)
-        self._eiscp.register_callback(CMD_LATE_NIGHT, self._on_generic_update)
-        self._eiscp.register_callback(CMD_HDR_OUTPUT, self._on_generic_update)
         
-        # Network/USB status
-        self._eiscp.register_callback(CMD_NET_USB_TITLE, self._on_generic_update)
-        self._eiscp.register_callback(CMD_NET_USB_ARTIST, self._on_generic_update)
-        self._eiscp.register_callback(CMD_NET_USB_ALBUM, self._on_generic_update)
-        self._eiscp.register_callback(CMD_NET_USB_TIME, self._on_generic_update)
-        self._eiscp.register_callback(CMD_NET_USB_STATUS, self._on_generic_update)
+        # Network/USB playback
+        self._eiscp.register_callback(CMD_NET_USB_TITLE, self._on_title_update)
+        self._eiscp.register_callback(CMD_NET_USB_ARTIST, self._on_artist_update)
+        self._eiscp.register_callback(CMD_NET_USB_ALBUM, self._on_album_update)
+        self._eiscp.register_callback(CMD_NET_USB_TIME, self._on_time_update)
+        self._eiscp.register_callback(CMD_NET_USB_STATUS, self._on_playback_status)
+        
+        # Other commands - just log them
+        for cmd in [CMD_DIMMER, CMD_DISPLAY, CMD_LATE_NIGHT, CMD_SLEEP, 
+                    CMD_HDMI_OUTPUT, CMD_SPEAKER_A, CMD_SPEAKER_B,
+                    CMD_ZONE2_POWER, CMD_ZONE2_VOLUME, CMD_ZONE2_MUTE]:
+            self._eiscp.register_callback(cmd, self._on_generic_update)
+
+    # =========================================================================
+    # Properties
+    # =========================================================================
 
     @property
     def active(self) -> bool:
@@ -267,6 +145,45 @@ class OnkyoDevice:
         """Return list of available sources."""
         return self._source_list
 
+    @property
+    def sound_mode(self) -> str:
+        """Return current listening/sound mode."""
+        return self._listening_mode
+
+    @property
+    def sound_mode_list(self) -> list:
+        """Return list of available sound modes."""
+        return self._listening_mode_list
+
+    @property
+    def media_title(self) -> str:
+        """Return current media title."""
+        return self._title
+
+    @property
+    def media_artist(self) -> str:
+        """Return current media artist."""
+        return self._artist
+
+    @property
+    def media_album(self) -> str:
+        """Return current media album."""
+        return self._album
+
+    @property
+    def media_position(self) -> int:
+        """Return current media position in seconds."""
+        return self._media_position
+
+    @property
+    def media_duration(self) -> int:
+        """Return media duration in seconds."""
+        return self._media_duration
+
+    # =========================================================================
+    # Connection Methods
+    # =========================================================================
+
     async def connect(self):
         """Connect to AVR."""
         _LOG.info("[%s] Connecting to %s", self.id, self._device_config.address)
@@ -292,10 +209,11 @@ class OnkyoDevice:
         self.events.emit(Events.DISCONNECTED, self.id)
 
     async def update(self):
-        """Update AVR state."""
+        """Update AVR state by querying current values."""
         if not self._eiscp.connected:
             return
 
+        # Query main state
         await self._eiscp.send_command(CMD_POWER, "QSTN")
         await asyncio.sleep(0.1)
         await self._eiscp.send_command(CMD_VOLUME, "QSTN")
@@ -303,9 +221,11 @@ class OnkyoDevice:
         await self._eiscp.send_command(CMD_MUTE, "QSTN")
         await asyncio.sleep(0.1)
         await self._eiscp.send_command(CMD_INPUT, "QSTN")
+        await asyncio.sleep(0.1)
+        await self._eiscp.send_command(CMD_LISTENING_MODE, "QSTN")
 
     async def async_update_receiver_data(self):
-        """Periodic update."""
+        """Periodic update (called by poller)."""
         await self.update()
 
     # =========================================================================
@@ -329,7 +249,7 @@ class OnkyoDevice:
         """Handle volume update."""
         try:
             # Handle special values
-            if value in ("UP", "DOWN", "UP1", "DOWN1"):
+            if value.upper() in ("UP", "DOWN", "UP1", "DOWN1"):
                 return
             
             vol_int = int(value, 16)
@@ -354,38 +274,95 @@ class OnkyoDevice:
 
     def _on_input_update(self, cmd: str, value: str):
         """Handle input source update."""
-        # Normalize to uppercase for lookup
         value_upper = value.upper()
         source_name = INPUT_SOURCES.get(value_upper)
         
         if source_name:
             self._source = source_name
         else:
-            # Unknown source - log but don't crash
             self._source = f"INPUT {value}"
             _LOG.info("[%s] Unknown input code: %s", self.id, value)
         
         _LOG.debug("[%s] Source: %s", self.id, self._source)
         self.events.emit(Events.UPDATE, self.id, {"source": self._source})
 
+    def _on_listening_mode_update(self, cmd: str, value: str):
+        """Handle listening mode update."""
+        value_upper = value.upper()
+        mode_name = LISTENING_MODES.get(value_upper)
+        
+        if mode_name:
+            self._listening_mode = mode_name
+        else:
+            self._listening_mode = f"MODE {value}"
+            _LOG.info("[%s] Unknown listening mode: %s", self.id, value)
+        
+        _LOG.debug("[%s] Listening Mode: %s", self.id, self._listening_mode)
+        self.events.emit(Events.UPDATE, self.id, {"sound_mode": self._listening_mode})
+
+    def _on_title_update(self, cmd: str, value: str):
+        """Handle title update."""
+        self._title = value
+        _LOG.debug("[%s] Title: %s", self.id, self._title)
+        self.events.emit(Events.UPDATE, self.id, {"title": self._title})
+
+    def _on_artist_update(self, cmd: str, value: str):
+        """Handle artist update."""
+        self._artist = value
+        _LOG.debug("[%s] Artist: %s", self.id, self._artist)
+        self.events.emit(Events.UPDATE, self.id, {"artist": self._artist})
+
+    def _on_album_update(self, cmd: str, value: str):
+        """Handle album update."""
+        self._album = value
+        _LOG.debug("[%s] Album: %s", self.id, self._album)
+        self.events.emit(Events.UPDATE, self.id, {"album": self._album})
+
+    def _on_time_update(self, cmd: str, value: str):
+        """Handle time info update (mm:ss/mm:ss format)."""
+        try:
+            if "/" in value:
+                current, total = value.split("/")
+                # Parse mm:ss
+                if ":" in current:
+                    m, s = current.split(":")
+                    self._media_position = int(m) * 60 + int(s)
+                if ":" in total:
+                    m, s = total.split(":")
+                    self._media_duration = int(m) * 60 + int(s)
+                
+                self.events.emit(Events.UPDATE, self.id, {
+                    "position": self._media_position,
+                    "duration": self._media_duration
+                })
+        except Exception as e:
+            _LOG.debug("[%s] Could not parse time: %s (%s)", self.id, value, e)
+
+    def _on_playback_status(self, cmd: str, value: str):
+        """Handle playback status update."""
+        # NST format: prs where p=play status, r=repeat, s=shuffle
+        if len(value) >= 1:
+            play_status = value[0]
+            if play_status == "P":
+                self._state = States.PLAYING
+            elif play_status == "p":
+                self._state = States.PAUSED
+            elif play_status == "S":
+                self._state = States.ON  # Stopped but on
+            
+            _LOG.debug("[%s] Playback status: %s", self.id, self._state)
+            self.events.emit(Events.UPDATE, self.id, {"state": self._state})
+
     def _on_audio_info(self, cmd: str, value: str):
         """Handle audio info update."""
         _LOG.debug("[%s] Audio Info: %s", self.id, value)
-        # Could emit this as additional info in the future
 
     def _on_video_info(self, cmd: str, value: str):
         """Handle video info update."""
         _LOG.debug("[%s] Video Info: %s", self.id, value)
-        # Could emit this as additional info in the future
-
-    def _on_listening_mode(self, cmd: str, value: str):
-        """Handle listening mode update."""
-        mode_name = LISTENING_MODES.get(value, f"MODE {value}")
-        _LOG.debug("[%s] Listening Mode: %s", self.id, mode_name)
-        # Could emit this as additional info in the future
 
     def _on_generic_update(self, cmd: str, value: str):
-        """Handle generic/unhandled updates - just log them."""
+        """Handle generic/unhandled updates."""
         _LOG.debug("[%s] %s: %s", self.id, cmd, value)
 
     # =========================================================================
@@ -402,7 +379,6 @@ class OnkyoDevice:
 
     async def set_volume_level(self, volume: int):
         """Set volume (0-80)."""
-        # Clamp to valid range
         onkyo_vol = max(0, min(80, volume))
         vol_hex = format(onkyo_vol, "02X")
         await self._eiscp.send_command(CMD_VOLUME, vol_hex)
@@ -419,13 +395,16 @@ class OnkyoDevice:
         """Set mute."""
         await self._eiscp.send_command(CMD_MUTE, "01" if mute else "00")
 
+    async def mute_toggle(self):
+        """Toggle mute."""
+        await self._eiscp.send_command(CMD_MUTE, "TG")
+
     async def select_source(self, source: str):
         """Select input source."""
-        # Try direct lookup first
         source_code = SOURCE_TO_CODE.get(source)
         
         if not source_code:
-            # Try case-insensitive lookup
+            # Case-insensitive lookup
             source_upper = source.upper()
             for name, code in SOURCE_TO_CODE.items():
                 if name.upper() == source_upper:
@@ -437,6 +416,82 @@ class OnkyoDevice:
         else:
             _LOG.warning("[%s] Unknown source: %s", self.id, source)
 
+    async def select_sound_mode(self, mode: str):
+        """Select listening/sound mode."""
+        mode_code = LISTENING_MODE_TO_CODE.get(mode)
+        
+        if not mode_code:
+            # Case-insensitive lookup
+            mode_upper = mode.upper()
+            for name, code in LISTENING_MODE_TO_CODE.items():
+                if name.upper() == mode_upper:
+                    mode_code = code
+                    break
+        
+        if mode_code:
+            await self._eiscp.send_command(CMD_LISTENING_MODE, mode_code)
+        else:
+            _LOG.warning("[%s] Unknown sound mode: %s", self.id, mode)
+
+    # Playback controls
+    async def play(self):
+        """Start playback."""
+        await self._eiscp.send_command(CMD_NET_USB_PLAY, "PLAY")
+
+    async def pause(self):
+        """Pause playback."""
+        await self._eiscp.send_command(CMD_NET_USB_PLAY, "PAUSE")
+
+    async def stop(self):
+        """Stop playback."""
+        await self._eiscp.send_command(CMD_NET_USB_PLAY, "STOP")
+
+    async def next_track(self):
+        """Skip to next track."""
+        await self._eiscp.send_command(CMD_NET_USB_PLAY, "TRUP")
+
+    async def previous_track(self):
+        """Skip to previous track."""
+        await self._eiscp.send_command(CMD_NET_USB_PLAY, "TRDN")
+
+    # Navigation
+    async def menu_up(self):
+        """Navigate up."""
+        await self._eiscp.send_command("OSD", "UP")
+
+    async def menu_down(self):
+        """Navigate down."""
+        await self._eiscp.send_command("OSD", "DOWN")
+
+    async def menu_left(self):
+        """Navigate left."""
+        await self._eiscp.send_command("OSD", "LEFT")
+
+    async def menu_right(self):
+        """Navigate right."""
+        await self._eiscp.send_command("OSD", "RIGHT")
+
+    async def menu_enter(self):
+        """Enter/select."""
+        await self._eiscp.send_command("OSD", "ENTER")
+
+    async def menu_back(self):
+        """Go back/return."""
+        await self._eiscp.send_command("OSD", "EXIT")
+
+    async def menu_home(self):
+        """Go to home menu."""
+        await self._eiscp.send_command("OSD", "HOME")
+
+    async def show_menu(self):
+        """Show menu."""
+        await self._eiscp.send_command("OSD", "MENU")
+
+    async def show_info(self):
+        """Show info/context menu."""
+        await self._eiscp.send_command(CMD_AUDIO_INFO, "QSTN")
+
+    # Raw command
     async def send_raw_command(self, command: str, value: str):
         """Send a raw eISCP command."""
         await self._eiscp.send_command(command, value)

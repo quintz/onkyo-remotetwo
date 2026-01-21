@@ -1,12 +1,19 @@
-"""Onkyo media player entity."""
+"""
+Onkyo media player entity.
+
+:copyright: (c) 2025 by Quirin.
+:license: Mozilla Public License Version 2.0, see LICENSE for more details.
+"""
+
 import logging
 from typing import Any
 
-import avr
 import ucapi
-from config import AvrDevice, create_entity_id
 from ucapi import EntityTypes, StatusCodes
-from ucapi.media_player import Attributes, Commands, Features, MediaPlayer, States
+from ucapi.media_player import Attributes, Commands, Features, MediaType, Options, MediaPlayer, States
+
+from config import AvrDevice, create_entity_id
+from const import States as AvrStates, MEDIA_PLAYER_FEATURES
 
 _LOG = logging.getLogger(__name__)
 
@@ -14,14 +21,26 @@ _LOG = logging.getLogger(__name__)
 class OnkyoMediaPlayer(MediaPlayer):
     """Onkyo media player entity."""
 
-    def __init__(self, device: AvrDevice, receiver: avr.OnkyoDevice, api: ucapi.IntegrationAPI):
-        """Initialize media player."""
+    def __init__(
+        self, 
+        device: AvrDevice, 
+        receiver,  # OnkyoDevice instance
+        api: ucapi.IntegrationAPI
+    ):
+        """
+        Initialize media player.
+        
+        :param device: Device configuration
+        :param receiver: OnkyoDevice instance
+        :param api: Integration API instance
+        """
         self._device = device
         self._receiver = receiver
         self._api = api
 
         entity_id = create_entity_id(device.id, EntityTypes.MEDIA_PLAYER)
 
+        # Features
         features = [
             Features.ON_OFF,
             Features.TOGGLE,
@@ -30,15 +49,34 @@ class OnkyoMediaPlayer(MediaPlayer):
             Features.MUTE_TOGGLE,
             Features.MUTE,
             Features.UNMUTE,
+            Features.PLAY_PAUSE,
+            Features.STOP,
+            Features.NEXT,
+            Features.PREVIOUS,
             Features.SELECT_SOURCE,
+            Features.SELECT_SOUND_MODE,
+            Features.DPAD,
+            Features.MENU,
+            Features.CONTEXT_MENU,
+            Features.INFO,
+            Features.HOME,
         ]
 
+        # Initial attributes
         attributes = {
             Attributes.STATE: States.OFF,
             Attributes.VOLUME: 0,
             Attributes.MUTED: False,
             Attributes.SOURCE: "",
             Attributes.SOURCE_LIST: receiver.source_list,
+            Attributes.SOUND_MODE: "",
+            Attributes.SOUND_MODE_LIST: receiver.sound_mode_list,
+            Attributes.MEDIA_TITLE: "",
+            Attributes.MEDIA_ARTIST: "",
+            Attributes.MEDIA_ALBUM: "",
+            Attributes.MEDIA_POSITION: 0,
+            Attributes.MEDIA_DURATION: 0,
+            Attributes.MEDIA_TYPE: MediaType.MUSIC,
         }
 
         super().__init__(
@@ -46,55 +84,79 @@ class OnkyoMediaPlayer(MediaPlayer):
             device.name,
             features,
             attributes,
+            device_class="receiver",
         )
 
-    def state_from_avr(self, avr_state: str) -> str:
-        """Convert AVR state to entity state."""
+    def _state_from_avr(self, avr_state: str) -> str:
+        """
+        Convert AVR state to entity state.
+        
+        :param avr_state: AVR state string
+        :return: Entity state string
+        """
         state_map = {
-            avr.States.ON: States.ON,
-            avr.States.OFF: States.OFF,
-            avr.States.PLAYING: States.PLAYING,
-            avr.States.PAUSED: States.PAUSED,
-            avr.States.UNKNOWN: States.UNKNOWN,
-            avr.States.UNAVAILABLE: States.UNAVAILABLE,
+            AvrStates.ON: States.ON,
+            AvrStates.OFF: States.OFF,
+            AvrStates.PLAYING: States.PLAYING,
+            AvrStates.PAUSED: States.PAUSED,
+            AvrStates.UNKNOWN: States.UNKNOWN,
+            AvrStates.UNAVAILABLE: States.UNAVAILABLE,
         }
         return state_map.get(avr_state, States.UNKNOWN)
 
     def update_attributes(self, update: dict[str, Any], force: bool = False):
-        """Update entity attributes."""
-        # Convert AVR state to entity state if present
+        """
+        Update entity attributes from AVR state.
+        
+        :param update: Dictionary with updates
+        :param force: Force update even if no changes
+        """
+        # Convert AVR state to entity state
         if "state" in update:
-            update[Attributes.STATE] = self.state_from_avr(update.pop("state"))
+            update[Attributes.STATE] = self._state_from_avr(update.pop("state"))
 
         # Map AVR attributes to entity attributes
         attr_map = {
             "volume": Attributes.VOLUME,
             "muted": Attributes.MUTED,
             "source": Attributes.SOURCE,
+            "sound_mode": Attributes.SOUND_MODE,
+            "title": Attributes.MEDIA_TITLE,
+            "artist": Attributes.MEDIA_ARTIST,
+            "album": Attributes.MEDIA_ALBUM,
+            "position": Attributes.MEDIA_POSITION,
+            "duration": Attributes.MEDIA_DURATION,
         }
 
         for avr_attr, entity_attr in attr_map.items():
             if avr_attr in update:
                 update[entity_attr] = update.pop(avr_attr)
 
-        # Remove any unmapped attributes
-        update = {k: v for k, v in update.items() if k in Attributes}
+        # Filter to valid attributes only
+        valid_update = {k: v for k, v in update.items() if hasattr(Attributes, k.upper().replace(".", "_")) or k in Attributes.__dict__.values()}
 
-        if update or force:
-            self.attributes.update(update)
-            self._api.configured_entities.update_attributes(self.id, update)
+        if valid_update or force:
+            self.attributes.update(valid_update)
+            self._api.configured_entities.update_attributes(self.id, valid_update)
 
-    async def command(self, cmd_id: str, params: dict[str, Any] | None = None, entity_type: str | None = None) -> StatusCodes:
+    async def command(
+        self, 
+        cmd_id: str, 
+        params: dict[str, Any] | None = None,
+        entity_type: str | None = None
+    ) -> StatusCodes:
         """
-        Handle commands from Remote Two.
+        Handle media player commands.
         
-        :param cmd_id: The command identifier
-        :param params: Optional command parameters
-        :param entity_type: The entity type (new parameter in ucapi >= 0.5.0)
+        :param cmd_id: Command ID
+        :param params: Command parameters
+        :param entity_type: Entity type (from ucapi >= 0.5.0)
+        :return: Status code
         """
         _LOG.info("[%s] Command: %s %s", self.id, cmd_id, params)
 
         try:
+            # Power commands
             if cmd_id == Commands.ON:
                 await self._receiver.power_on()
                 return StatusCodes.OK
@@ -104,12 +166,13 @@ class OnkyoMediaPlayer(MediaPlayer):
                 return StatusCodes.OK
 
             if cmd_id == Commands.TOGGLE:
-                if self._receiver.state == avr.States.ON:
+                if self._receiver.state == AvrStates.ON:
                     await self._receiver.power_off()
                 else:
                     await self._receiver.power_on()
                 return StatusCodes.OK
 
+            # Volume commands
             if cmd_id == Commands.VOLUME:
                 volume = params.get("volume", 0) if params else 0
                 await self._receiver.set_volume_level(volume)
@@ -123,8 +186,9 @@ class OnkyoMediaPlayer(MediaPlayer):
                 await self._receiver.volume_down()
                 return StatusCodes.OK
 
+            # Mute commands
             if cmd_id == Commands.MUTE_TOGGLE:
-                await self._receiver.mute(not self._receiver.is_volume_muted)
+                await self._receiver.mute_toggle()
                 return StatusCodes.OK
 
             if cmd_id == Commands.MUTE:
@@ -135,11 +199,81 @@ class OnkyoMediaPlayer(MediaPlayer):
                 await self._receiver.mute(False)
                 return StatusCodes.OK
 
+            # Source selection
             if cmd_id == Commands.SELECT_SOURCE:
                 source = params.get("source", "") if params else ""
                 await self._receiver.select_source(source)
                 return StatusCodes.OK
 
+            # Sound mode selection
+            if cmd_id == Commands.SELECT_SOUND_MODE:
+                mode = params.get("mode", "") if params else ""
+                await self._receiver.select_sound_mode(mode)
+                return StatusCodes.OK
+
+            # Playback commands
+            if cmd_id == Commands.PLAY_PAUSE:
+                if self._receiver.state == AvrStates.PLAYING:
+                    await self._receiver.pause()
+                else:
+                    await self._receiver.play()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.STOP:
+                await self._receiver.stop()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.NEXT:
+                await self._receiver.next_track()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.PREVIOUS:
+                await self._receiver.previous_track()
+                return StatusCodes.OK
+
+            # Navigation commands (D-Pad)
+            if cmd_id == Commands.CURSOR_UP:
+                await self._receiver.menu_up()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.CURSOR_DOWN:
+                await self._receiver.menu_down()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.CURSOR_LEFT:
+                await self._receiver.menu_left()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.CURSOR_RIGHT:
+                await self._receiver.menu_right()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.CURSOR_ENTER:
+                await self._receiver.menu_enter()
+                return StatusCodes.OK
+
+            # Menu commands
+            if cmd_id == Commands.BACK:
+                await self._receiver.menu_back()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.HOME:
+                await self._receiver.menu_home()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.MENU:
+                await self._receiver.show_menu()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.CONTEXT_MENU:
+                await self._receiver.show_info()
+                return StatusCodes.OK
+
+            if cmd_id == Commands.INFO:
+                await self._receiver.show_info()
+                return StatusCodes.OK
+
+            _LOG.warning("[%s] Unknown command: %s", self.id, cmd_id)
             return StatusCodes.NOT_IMPLEMENTED
 
         except Exception as e:

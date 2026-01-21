@@ -9,7 +9,6 @@ Onkyo AVR integration driver for Remote Two/3.
 import os
 
 # CRITICAL: Set these BEFORE importing ucapi!
-# Custom integrations must listen on all interfaces, not just localhost
 if "UC_INTEGRATION_LISTEN_IP" not in os.environ:
     os.environ["UC_INTEGRATION_LISTEN_IP"] = "0.0.0.0"
 
@@ -23,9 +22,11 @@ from typing import Any
 import avr
 import config
 import media_player
+import remote
 import setup_flow
 import ucapi
 from config import AvrDevice, avr_from_entity_id, create_entity_id
+from const import __version__, Events, States
 from ucapi.media_player import Attributes as MediaAttr
 
 _LOG = logging.getLogger("driver")
@@ -39,8 +40,16 @@ _configured_avrs: dict[str, avr.OnkyoDevice] = {}
 _REMOTE_IN_STANDBY = False
 
 
+# =============================================================================
+# Receiver Status Poller
+# =============================================================================
+
 async def receiver_status_poller(interval: float = 10.0) -> None:
-    """Periodic receiver data poller."""
+    """
+    Periodic receiver data poller.
+    
+    :param interval: Polling interval in seconds
+    """
     while True:
         start_time = asyncio.get_event_loop().time()
         if not _REMOTE_IN_STANDBY:
@@ -50,16 +59,22 @@ async def receiver_status_poller(interval: float = 10.0) -> None:
                     for receiver in _configured_avrs.values()
                     if receiver.active
                 ]
-                await asyncio.gather(*tasks)
-            except (KeyError, ValueError):
-                pass
+                if tasks:
+                    await asyncio.gather(*tasks)
+            except Exception as e:
+                _LOG.debug("Poller error: %s", e)
+        
         elapsed_time = asyncio.get_event_loop().time() - start_time
         await asyncio.sleep(min(10.0, max(1.0, interval - elapsed_time)))
 
 
+# =============================================================================
+# Remote Event Handlers
+# =============================================================================
+
 @api.listens_to(ucapi.Events.CONNECT)
 async def on_r2_connect_cmd() -> None:
-    """Connect all receivers when Remote connects."""
+    """Handle Remote connect event."""
     _LOG.info("Remote connect command")
     await api.set_device_state(ucapi.DeviceStates.CONNECTED)
 
@@ -69,7 +84,7 @@ async def on_r2_connect_cmd() -> None:
 
 @api.listens_to(ucapi.Events.DISCONNECT)
 async def on_r2_disconnect_cmd():
-    """Disconnect all receivers when Remote disconnects."""
+    """Handle Remote disconnect event."""
     _LOG.info("Remote disconnect command")
     for receiver in _configured_avrs.values():
         _LOOP.create_task(receiver.disconnect())
@@ -77,7 +92,7 @@ async def on_r2_disconnect_cmd():
 
 @api.listens_to(ucapi.Events.ENTER_STANDBY)
 async def on_r2_enter_standby() -> None:
-    """Enter standby - disconnect receivers."""
+    """Handle Remote entering standby."""
     global _REMOTE_IN_STANDBY
     _REMOTE_IN_STANDBY = True
     _LOG.info("Entering standby")
@@ -88,7 +103,7 @@ async def on_r2_enter_standby() -> None:
 
 @api.listens_to(ucapi.Events.EXIT_STANDBY)
 async def on_r2_exit_standby() -> None:
-    """Exit standby - reconnect receivers."""
+    """Handle Remote exiting standby."""
     global _REMOTE_IN_STANDBY
     _REMOTE_IN_STANDBY = False
     _LOG.info("Exiting standby")
@@ -99,7 +114,7 @@ async def on_r2_exit_standby() -> None:
 
 @api.listens_to(ucapi.Events.SUBSCRIBE_ENTITIES)
 async def on_subscribe_entities(entity_ids: list[str]) -> None:
-    """Subscribe to entities."""
+    """Handle entity subscription."""
     global _REMOTE_IN_STANDBY
     _REMOTE_IN_STANDBY = False
     _LOG.info("Subscribe entities: %s", entity_ids)
@@ -119,7 +134,7 @@ async def on_subscribe_entities(entity_ids: list[str]) -> None:
 
 @api.listens_to(ucapi.Events.UNSUBSCRIBE_ENTITIES)
 async def on_unsubscribe_entities(entity_ids: list[str]) -> None:
-    """Unsubscribe from entities."""
+    """Handle entity unsubscription."""
     _LOG.info("Unsubscribe entities: %s", entity_ids)
     avrs_to_remove = set()
 
@@ -143,16 +158,26 @@ async def on_unsubscribe_entities(entity_ids: list[str]) -> None:
             _configured_avrs[avr_id].events.remove_all_listeners()
 
 
+# =============================================================================
+# AVR Event Handlers
+# =============================================================================
+
 async def on_avr_connected(avr_id: str):
     """Handle AVR connection."""
     _LOG.info("[%s] AVR connected", avr_id)
     await api.set_device_state(ucapi.DeviceStates.CONNECTED)
 
-    update = {MediaAttr.STATE: avr.States.UNKNOWN}
-    entity_id = create_entity_id(avr_id, ucapi.EntityTypes.MEDIA_PLAYER)
-    configured_entity = api.configured_entities.get(entity_id)
-    if configured_entity and isinstance(configured_entity, media_player.OnkyoMediaPlayer):
-        configured_entity.update_attributes(update)
+    # Update media player entity
+    mp_entity_id = create_entity_id(avr_id, ucapi.EntityTypes.MEDIA_PLAYER)
+    mp_entity = api.configured_entities.get(mp_entity_id)
+    if mp_entity and isinstance(mp_entity, media_player.OnkyoMediaPlayer):
+        mp_entity.update_attributes({MediaAttr.STATE: ucapi.media_player.States.UNKNOWN})
+
+    # Update remote entity
+    remote_entity_id = create_entity_id(avr_id, ucapi.EntityTypes.REMOTE, "remote")
+    remote_entity = api.configured_entities.get(remote_entity_id)
+    if remote_entity and isinstance(remote_entity, remote.OnkyoRemote):
+        remote_entity.update_state("ON")
 
 
 def on_avr_disconnected(avr_id: str):
@@ -168,18 +193,25 @@ def on_avr_connection_error(avr_id: str, message):
 
 
 def _mark_entities_unavailable(avr_id: str, *, force: bool):
-    """Mark entities as unavailable."""
-    entity_id = create_entity_id(avr_id, ucapi.EntityTypes.MEDIA_PLAYER)
-    configured_entity = api.configured_entities.get(entity_id)
-    if configured_entity and isinstance(configured_entity, media_player.OnkyoMediaPlayer):
-        configured_entity.update_attributes(
-            {ucapi.media_player.Attributes.STATE: ucapi.media_player.States.UNAVAILABLE},
+    """Mark all entities for an AVR as unavailable."""
+    # Media player
+    mp_entity_id = create_entity_id(avr_id, ucapi.EntityTypes.MEDIA_PLAYER)
+    mp_entity = api.configured_entities.get(mp_entity_id)
+    if mp_entity and isinstance(mp_entity, media_player.OnkyoMediaPlayer):
+        mp_entity.update_attributes(
+            {MediaAttr.STATE: ucapi.media_player.States.UNAVAILABLE},
             force=force
         )
 
+    # Remote
+    remote_entity_id = create_entity_id(avr_id, ucapi.EntityTypes.REMOTE, "remote")
+    remote_entity = api.configured_entities.get(remote_entity_id)
+    if remote_entity and isinstance(remote_entity, remote.OnkyoRemote):
+        remote_entity.update_state("OFF")
+
 
 def handle_avr_address_change(avr_id: str, address: str) -> None:
-    """Update device configuration with changed IP."""
+    """Handle AVR IP address change."""
     device = config.devices.get(avr_id)
     if device and device.address != address:
         _LOG.info("[%s] Updating IP: %s -> %s", avr_id, device.address, address)
@@ -188,11 +220,12 @@ def handle_avr_address_change(avr_id: str, address: str) -> None:
 
 
 def on_avr_update(avr_id: str, update: dict[str, Any] | None) -> None:
-    """Update entity attributes when AVR properties change."""
-    entity_id = create_entity_id(avr_id, ucapi.EntityTypes.MEDIA_PLAYER)
-    configured_entity = api.configured_entities.get(entity_id)
+    """Handle AVR state update."""
+    # Update media player
+    mp_entity_id = create_entity_id(avr_id, ucapi.EntityTypes.MEDIA_PLAYER)
+    mp_entity = api.configured_entities.get(mp_entity_id)
 
-    if configured_entity and isinstance(configured_entity, media_player.OnkyoMediaPlayer):
+    if mp_entity and isinstance(mp_entity, media_player.OnkyoMediaPlayer):
         if update is None:
             # Full state update
             if avr_id not in _configured_avrs:
@@ -203,14 +236,37 @@ def on_avr_update(avr_id: str, update: dict[str, Any] | None) -> None:
                 "volume": receiver.volume_level,
                 "muted": receiver.is_volume_muted,
                 "source": receiver.source,
+                "sound_mode": receiver.sound_mode,
+                "title": receiver.media_title,
+                "artist": receiver.media_artist,
+                "album": receiver.media_album,
             }
 
         _LOG.debug("[%s] AVR update: %s", avr_id, update)
-        configured_entity.update_attributes(update)
+        mp_entity.update_attributes(update)
 
+    # Update remote entity state based on power
+    if update and "state" in update:
+        remote_entity_id = create_entity_id(avr_id, ucapi.EntityTypes.REMOTE, "remote")
+        remote_entity = api.configured_entities.get(remote_entity_id)
+        if remote_entity and isinstance(remote_entity, remote.OnkyoRemote):
+            if update["state"] in [States.ON, States.PLAYING, States.PAUSED]:
+                remote_entity.update_state("ON")
+            else:
+                remote_entity.update_state("OFF")
+
+
+# =============================================================================
+# Device Configuration
+# =============================================================================
 
 def _configure_new_avr(device: AvrDevice, connect: bool = True) -> None:
-    """Create and configure a new AVR device."""
+    """
+    Create and configure a new AVR device.
+    
+    :param device: Device configuration
+    :param connect: Whether to connect immediately
+    """
     if device.id in _configured_avrs:
         receiver = _configured_avrs[device.id]
         if not connect:
@@ -218,11 +274,12 @@ def _configure_new_avr(device: AvrDevice, connect: bool = True) -> None:
     else:
         receiver = avr.OnkyoDevice(device, loop=_LOOP)
 
-        receiver.events.on(avr.Events.CONNECTED, on_avr_connected)
-        receiver.events.on(avr.Events.DISCONNECTED, on_avr_disconnected)
-        receiver.events.on(avr.Events.ERROR, on_avr_connection_error)
-        receiver.events.on(avr.Events.UPDATE, on_avr_update)
-        receiver.events.on(avr.Events.IP_ADDRESS_CHANGED, handle_avr_address_change)
+        # Register event handlers
+        receiver.events.on(Events.CONNECTED, on_avr_connected)
+        receiver.events.on(Events.DISCONNECTED, on_avr_disconnected)
+        receiver.events.on(Events.ERROR, on_avr_connection_error)
+        receiver.events.on(Events.UPDATE, on_avr_update)
+        receiver.events.on(Events.IP_ADDRESS_CHANGED, handle_avr_address_change)
 
         _configured_avrs[device.id] = receiver
 
@@ -233,12 +290,23 @@ def _configure_new_avr(device: AvrDevice, connect: bool = True) -> None:
 
 
 def _register_available_entities(device: AvrDevice, receiver: avr.OnkyoDevice) -> None:
-    """Create and register entities."""
-    entity = media_player.OnkyoMediaPlayer(device, receiver, api)
+    """
+    Create and register entities for a device.
+    
+    :param device: Device configuration
+    :param receiver: OnkyoDevice instance
+    """
+    # Media Player entity
+    mp_entity = media_player.OnkyoMediaPlayer(device, receiver, api)
+    if api.available_entities.contains(mp_entity.id):
+        api.available_entities.remove(mp_entity.id)
+    api.available_entities.add(mp_entity)
 
-    if api.available_entities.contains(entity.id):
-        api.available_entities.remove(entity.id)
-    api.available_entities.add(entity)
+    # Remote entity
+    remote_entity = remote.OnkyoRemote(device, receiver, api)
+    if api.available_entities.contains(remote_entity.id):
+        api.available_entities.remove(remote_entity.id)
+    api.available_entities.add(remote_entity)
 
 
 def on_device_added(device: AvrDevice) -> None:
@@ -263,9 +331,14 @@ def on_device_removed(device: AvrDevice | None) -> None:
             configured = _configured_avrs.pop(device.id)
             _LOOP.create_task(_async_remove(configured))
 
-            entity_id = create_entity_id(device.id, ucapi.EntityTypes.MEDIA_PLAYER)
-            api.configured_entities.remove(entity_id)
-            api.available_entities.remove(entity_id)
+            # Remove entities
+            mp_entity_id = create_entity_id(device.id, ucapi.EntityTypes.MEDIA_PLAYER)
+            remote_entity_id = create_entity_id(device.id, ucapi.EntityTypes.REMOTE, "remote")
+            
+            api.configured_entities.remove(mp_entity_id)
+            api.configured_entities.remove(remote_entity_id)
+            api.available_entities.remove(mp_entity_id)
+            api.available_entities.remove(remote_entity_id)
 
 
 async def _async_remove(receiver: avr.OnkyoDevice) -> None:
@@ -273,6 +346,10 @@ async def _async_remove(receiver: avr.OnkyoDevice) -> None:
     await receiver.disconnect()
     receiver.events.remove_all_listeners()
 
+
+# =============================================================================
+# Main Entry Point
+# =============================================================================
 
 async def main():
     """Start the integration driver."""
@@ -287,9 +364,10 @@ async def main():
     logging.getLogger("avr").setLevel(level)
     logging.getLogger("eiscp").setLevel(level)
     logging.getLogger("media_player").setLevel(level)
+    logging.getLogger("remote").setLevel(level)
     logging.getLogger("setup_flow").setLevel(level)
 
-    _LOG.info("Starting Onkyo integration driver v0.2.1")
+    _LOG.info("Starting Onkyo integration driver v%s", __version__)
     _LOG.info("Network: %s:%s", 
               os.getenv("UC_INTEGRATION_LISTEN_IP", "default"),
               os.getenv("UC_INTEGRATION_HTTP_PORT", "default"))
