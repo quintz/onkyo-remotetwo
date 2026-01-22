@@ -301,6 +301,7 @@ SIMPLE_COMMANDS = [
     "CD",
     "Phono",
     "Tuner",
+    "PC",
     "FM",
     "AM",
     "USB",
@@ -431,6 +432,7 @@ SIMPLE_COMMAND_MAP = {
     "Strm Box": (CMD_INPUT, "11"),
     "CD": (CMD_INPUT, "23"),
     "Phono": (CMD_INPUT, "22"),
+    "PC": (CMD_INPUT, "05"),
     "Tuner": (CMD_INPUT, "26"),
     "FM": (CMD_INPUT, "24"),
     "AM": (CMD_INPUT, "25"),
@@ -561,4 +563,3 @@ MEDIA_PLAYER_FEATURES = [
     "context_menu",
     "info",
     "home",
-]
