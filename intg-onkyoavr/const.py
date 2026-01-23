@@ -563,3 +563,4 @@ MEDIA_PLAYER_FEATURES = [
     "context_menu",
     "info",
     "home",
+]
