@@ -73,4 +73,4 @@ This project is licensed under the Mozilla Public License 2.0 - see [LICENSE](LI
 
 ## Author
 
-Created by Quirin ([@quintz](https://github.com/quintz))
+Vibe coded by quintz via Claude Code (Because I cannot code and desperetly wanted an Onkyo Integration) ([@quintz](https://github.com/quintz))
