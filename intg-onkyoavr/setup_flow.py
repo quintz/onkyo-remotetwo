@@ -8,27 +8,21 @@ from config import AvrDevice
 
 _LOG = logging.getLogger(__name__)
 
-# Setup flow state tracking
-_setup_step = "init"  # init, add_device, backup_restore
-
 
 async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
     """
     Handle driver setup with Backup/Restore functionality.
     
-    Flow:
-    1. Initial: Show choice (Add Device / Backup-Restore)
-    2a. Add Device: Show IP + Name form -> Save -> Complete
-    2b. Backup/Restore: Show JSON config -> Apply or just view -> Complete
+    Flow detection based on field names in setup_data:
+    - "action" field -> Main menu choice (from driver.json initial form)
+    - "address" field -> Add device form submitted
+    - "config_json" field -> Backup/restore form submitted
     """
-    global _setup_step
-    
-    _LOG.info("=== Setup handler called, msg type: %s, step: %s ===", type(msg).__name__, _setup_step)
+    _LOG.info("=== Setup handler called, msg type: %s ===", type(msg).__name__)
     
     # Handle AbortDriverSetup
     if isinstance(msg, ucapi.AbortDriverSetup):
         _LOG.info("Setup aborted by user")
-        _setup_step = "init"
         return ucapi.SetupError()
     
     # Handle SetupDriver
@@ -37,214 +31,143 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
         _LOG.info("Setup data received: %s", setup_data)
         
         # =====================================================================
-        # STEP: Process choice from main menu
+        # CASE 1: Main menu submitted (has "action" field from driver.json)
         # =====================================================================
         if "action" in setup_data:
             action = setup_data.get("action", "")
-            _LOG.info("Action selected: %s", action)
+            _LOG.info("Main menu action selected: %s", action)
             
             if action == "add_device":
-                _setup_step = "add_device"
-                return _show_add_device_form()
+                _LOG.info("Showing add device form")
+                return ucapi.RequestUserInput(
+                    {
+                        "en": "Add Onkyo Receiver",
+                        "de": "Onkyo Receiver hinzufuegen"
+                    },
+                    [
+                        {
+                            "id": "address",
+                            "label": {
+                                "en": "IP Address",
+                                "de": "IP-Adresse"
+                            },
+                            "field": {
+                                "text": {
+                                    "value": ""
+                                }
+                            }
+                        },
+                        {
+                            "id": "name",
+                            "label": {
+                                "en": "Name",
+                                "de": "Name"
+                            },
+                            "field": {
+                                "text": {
+                                    "value": "Onkyo AVR"
+                                }
+                            }
+                        }
+                    ]
+                )
             
             elif action == "backup_restore":
-                _setup_step = "backup_restore"
-                return _show_backup_restore_form()
-        
-        # =====================================================================
-        # STEP: Process Add Device form
-        # =====================================================================
-        if _setup_step == "add_device":
-            address = setup_data.get("address", "").strip()
-            
-            if address:
-                name = setup_data.get("name", "Onkyo AVR").strip()
-                if not name:
-                    name = "Onkyo AVR"
-                
-                _LOG.info("Creating device: %s at %s", name, address)
-                
-                # Create device
-                device_id = address.replace(".", "_")
-                device = AvrDevice(
-                    id=device_id,
-                    name=name,
-                    address=address,
-                    always_on=True
+                _LOG.info("Showing backup/restore form")
+                current_config = _get_config_json()
+                return ucapi.RequestUserInput(
+                    {
+                        "en": "Backup / Restore Configuration",
+                        "de": "Konfiguration sichern / wiederherstellen"
+                    },
+                    [
+                        {
+                            "id": "config_json",
+                            "label": {
+                                "en": "Copy to backup. Paste saved JSON to restore. Leave empty to cancel.",
+                                "de": "Kopieren zum Sichern. Gespeichertes JSON einfuegen zum Wiederherstellen. Leer lassen zum Abbrechen."
+                            },
+                            "field": {
+                                "textarea": {
+                                    "value": current_config
+                                }
+                            }
+                        }
+                    ]
                 )
-                
-                # Add to configuration
-                if config.devices:
-                    config.devices.add(device)
-                    _LOG.info("✅ Device added successfully!")
-                    _setup_step = "init"
-                    return ucapi.SetupComplete()
-                else:
-                    _LOG.error("❌ config.devices not initialized!")
-                    _setup_step = "init"
-                    return ucapi.SetupError()
+            
             else:
-                # No address - show form again
-                return _show_add_device_form()
+                _LOG.warning("Unknown action: %s", action)
+                return ucapi.SetupError()
         
         # =====================================================================
-        # STEP: Process Backup/Restore form
+        # CASE 2: Add Device form submitted (has "address" field)
         # =====================================================================
-        if _setup_step == "backup_restore":
+        if "address" in setup_data:
+            address = setup_data.get("address", "").strip()
+            name = setup_data.get("name", "Onkyo AVR").strip()
+            
+            _LOG.info("Add device form submitted: address=%s, name=%s", address, name)
+            
+            if not address:
+                _LOG.error("Empty address!")
+                return ucapi.SetupError()
+            
+            if not name:
+                name = "Onkyo AVR"
+            
+            # Create device
+            device_id = address.replace(".", "_")
+            device = AvrDevice(
+                id=device_id,
+                name=name,
+                address=address,
+                always_on=True
+            )
+            
+            # Add to configuration
+            if config.devices:
+                config.devices.add(device)
+                _LOG.info("Device added: %s at %s", name, address)
+                return ucapi.SetupComplete()
+            else:
+                _LOG.error("config.devices not initialized!")
+                return ucapi.SetupError()
+        
+        # =====================================================================
+        # CASE 3: Backup/Restore form submitted (has "config_json" field)
+        # =====================================================================
+        if "config_json" in setup_data:
             config_json = setup_data.get("config_json", "").strip()
+            _LOG.info("Backup/restore form submitted, json length: %d", len(config_json))
             
             if config_json:
-                # User entered/modified JSON - try to restore
-                result = _restore_config(config_json)
-                _setup_step = "init"
-                
-                if result:
-                    _LOG.info("✅ Configuration restored successfully!")
+                # User pasted JSON - try to restore
+                if _restore_config(config_json):
+                    _LOG.info("Configuration restored!")
                     return ucapi.SetupComplete()
                 else:
-                    _LOG.error("❌ Failed to restore configuration!")
+                    _LOG.error("Restore failed!")
                     return ucapi.SetupError()
             else:
-                # Empty JSON submitted - just complete (user only wanted to view backup)
-                _LOG.info("No config changes, completing setup")
-                _setup_step = "init"
+                # Empty JSON - user just copied backup and wants to exit
+                _LOG.info("Empty config_json, completing (backup only mode)")
                 return ucapi.SetupComplete()
         
         # =====================================================================
-        # INITIAL: Show main menu
+        # CASE 4: Unknown/empty setup_data
         # =====================================================================
-        _setup_step = "init"
-        return _show_main_menu()
+        _LOG.warning("No recognized fields in setup_data: %s", setup_data)
+        return ucapi.SetupError()
     
     _LOG.warning("Unknown message type: %s", type(msg))
-    _setup_step = "init"
     return ucapi.SetupError()
 
 
-def _show_main_menu() -> ucapi.RequestUserInput:
-    """Show the main setup menu with action choice."""
-    _LOG.info("Showing main menu")
-    
-    return ucapi.RequestUserInput(
-        "Onkyo AVR Setup",
-        [
-            {
-                "id": "action",
-                "label": {
-                    "en": "What would you like to do?",
-                    "de": "Was möchten Sie tun?"
-                },
-                "field": {
-                    "dropdown": {
-                        "value": "add_device",
-                        "items": [
-                            {
-                                "id": "add_device",
-                                "label": {
-                                    "en": "Add new receiver",
-                                    "de": "Neuen Receiver hinzufügen"
-                                }
-                            },
-                            {
-                                "id": "backup_restore",
-                                "label": {
-                                    "en": "Backup / Restore configuration",
-                                    "de": "Konfiguration sichern / wiederherstellen"
-                                }
-                            }
-                        ]
-                    }
-                }
-            }
-        ]
-    )
-
-
-def _show_add_device_form() -> ucapi.RequestUserInput:
-    """Show the add device form with IP and name fields."""
-    _LOG.info("Showing add device form")
-    
-    return ucapi.RequestUserInput(
-        {
-            "en": "Add Onkyo Receiver",
-            "de": "Onkyo Receiver hinzufügen"
-        },
-        [
-            {
-                "id": "address",
-                "label": {
-                    "en": "IP Address",
-                    "de": "IP-Adresse"
-                },
-                "field": {
-                    "text": {
-                        "value": ""
-                    }
-                }
-            },
-            {
-                "id": "name",
-                "label": {
-                    "en": "Name",
-                    "de": "Name"
-                },
-                "field": {
-                    "text": {
-                        "value": "Onkyo AVR"
-                    }
-                }
-            }
-        ]
-    )
-
-
-def _show_backup_restore_form() -> ucapi.RequestUserInput:
-    """Show the backup/restore form with current config as JSON."""
-    _LOG.info("Showing backup/restore form")
-    
-    # Get current configuration as JSON
-    current_config = _get_config_json()
-    
-    help_text = {
-        "en": "Copy this JSON to backup. To restore, paste your saved JSON and press Next. Leave empty and press Next to cancel.",
-        "de": "Kopieren Sie dieses JSON zum Sichern. Zum Wiederherstellen fügen Sie Ihr gespeichertes JSON ein und drücken Weiter. Leer lassen und Weiter drücken zum Abbrechen."
-    }
-    
-    return ucapi.RequestUserInput(
-        {
-            "en": "Backup / Restore Configuration",
-            "de": "Konfiguration sichern / wiederherstellen"
-        },
-        [
-            {
-                "id": "info",
-                "label": help_text,
-                "field": {
-                    "label": {
-                        "value": ""
-                    }
-                }
-            },
-            {
-                "id": "config_json",
-                "label": {
-                    "en": "Configuration (JSON)",
-                    "de": "Konfiguration (JSON)"
-                },
-                "field": {
-                    "textarea": {
-                        "value": current_config
-                    }
-                }
-            }
-        ]
-    )
-
-
-def _get_config_json() -> str:
+def _get_config_json():
     """Get current device configuration as JSON string."""
     if not config.devices:
-        return "{}"
+        return '{"version": "1.0", "devices": []}'
     
     devices_list = []
     for device in config.devices.all():
@@ -263,7 +186,7 @@ def _get_config_json() -> str:
     return json.dumps(config_data, indent=2)
 
 
-def _restore_config(config_json: str) -> bool:
+def _restore_config(config_json):
     """
     Restore configuration from JSON string.
     
@@ -274,23 +197,24 @@ def _restore_config(config_json: str) -> bool:
         data = json.loads(config_json)
         
         if "devices" not in data:
-            _LOG.error("Invalid config format: 'devices' key missing")
+            _LOG.error("Invalid config: 'devices' key missing")
             return False
         
         devices_data = data["devices"]
         
         if not isinstance(devices_data, list):
-            _LOG.error("Invalid config format: 'devices' must be a list")
+            _LOG.error("Invalid config: 'devices' must be a list")
             return False
         
         if not config.devices:
             _LOG.error("config.devices not initialized")
             return False
         
-        # Clear existing devices first
+        # Clear existing devices
         config.devices.clear()
         
         # Add devices from backup
+        restored_count = 0
         for device_data in devices_data:
             try:
                 device = AvrDevice(
@@ -300,17 +224,18 @@ def _restore_config(config_json: str) -> bool:
                     always_on=device_data.get("always_on", True)
                 )
                 config.devices.add(device)
-                _LOG.info("Restored device: %s (%s)", device.name, device.address)
+                _LOG.info("Restored: %s (%s)", device.name, device.address)
+                restored_count += 1
             except (KeyError, ValueError) as e:
-                _LOG.error("Invalid device data: %s - %s", device_data, e)
+                _LOG.error("Invalid device: %s - %s", device_data, e)
                 continue
         
-        _LOG.info("Configuration restored: %d device(s)", len(devices_data))
+        _LOG.info("Restored %d device(s)", restored_count)
         return True
         
     except json.JSONDecodeError as e:
         _LOG.error("Invalid JSON: %s", e)
         return False
     except Exception as e:
-        _LOG.error("Restore failed: %s", e)
+        _LOG.error("Restore error: %s", e)
         return False

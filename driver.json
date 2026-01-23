@@ -1,6 +1,6 @@
 {
   "driver_id": "onkyoavr",
-  "version": "0.3.1",
+  "version": "0.3.0",
   "min_core_api": "0.20.0",
   "name": {
     "en": "Onkyo AVR"
@@ -11,31 +11,35 @@
   },
   "setup_data_schema": {
     "title": {
-      "en": "Add Onkyo Receiver",
-      "de": "Onkyo Receiver hinzufügen"
+      "en": "Onkyo AVR Setup",
+      "de": "Onkyo AVR Einrichtung"
     },
     "settings": [
       {
-        "id": "address",
+        "id": "action",
         "label": {
-          "en": "IP Address",
-          "de": "IP-Adresse"
+          "en": "What would you like to do?",
+          "de": "Was möchten Sie tun?"
         },
         "field": {
-          "text": {
-            "value": ""
-          }
-        }
-      },
-      {
-        "id": "name",
-        "label": {
-          "en": "Name",
-          "de": "Name"
-        },
-        "field": {
-          "text": {
-            "value": "Onkyo AVR"
+          "dropdown": {
+            "value": "add_device",
+            "items": [
+              {
+                "id": "add_device",
+                "label": {
+                  "en": "Add new receiver",
+                  "de": "Neuen Receiver hinzufügen"
+                }
+              },
+              {
+                "id": "backup_restore",
+                "label": {
+                  "en": "Backup / Restore configuration",
+                  "de": "Konfiguration sichern / wiederherstellen"
+                }
+              }
+            ]
           }
         }
       }
@@ -47,5 +51,5 @@
     "url": "https://github.com/quintz"
   },
   "home_page": "https://github.com/quintz/integration-onkyoavr",
-  "release_date": "2025-01-21"
+  "release_date": "2025-01-23"
 }
