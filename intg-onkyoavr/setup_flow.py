@@ -13,7 +13,7 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
     """
     Handle driver setup with Backup/Restore functionality.
     
-    Flow detection based on field names in setup_data:
+    Flow detection based on field names in setup_data/input_values:
     - "action" field -> Main menu choice (from driver.json initial form)
     - "address" field -> Add device form submitted
     - "config_json" field -> Backup/restore form submitted
@@ -25,10 +25,19 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
         _LOG.info("Setup aborted by user")
         return ucapi.SetupError()
     
-    # Handle SetupDriver
+    # Handle SetupDriver - get data from correct attribute
     if isinstance(msg, ucapi.SetupDriver):
-        setup_data = getattr(msg, 'setup_data', None) or {}
-        _LOG.info("Setup data received: %s", setup_data)
+        # WICHTIG: Bei SetupDriver -> setup_data
+        #          Bei UserDataResponse -> input_values
+        if hasattr(msg, 'input_values') and msg.input_values:
+            setup_data = msg.input_values
+            _LOG.info("Got input_values: %s", setup_data)
+        elif hasattr(msg, 'setup_data') and msg.setup_data:
+            setup_data = msg.setup_data
+            _LOG.info("Got setup_data: %s", setup_data)
+        else:
+            setup_data = {}
+            _LOG.info("No data in message")
         
         # =====================================================================
         # CASE 1: Main menu submitted (has "action" field from driver.json)
@@ -155,7 +164,7 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
                 return ucapi.SetupComplete()
         
         # =====================================================================
-        # CASE 4: Unknown/empty setup_data
+        # CASE 4: Unknown/empty setup_data - should not happen
         # =====================================================================
         _LOG.warning("No recognized fields in setup_data: %s", setup_data)
         return ucapi.SetupError()
