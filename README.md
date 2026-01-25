@@ -69,7 +69,7 @@ This project is licensed under the Mozilla Public License 2.0 - see [LICENSE](LI
 ## Credits
 
 - Structure inspired by the [Denon AVR integration](https://github.com/unfoldedcircle/integration-denonavr) by Unfolded Circle.
-- eISCP protocol implementation based on Onkyo documentation.
+- eISCP protocol implementation based on Onkyo documentation and https://github.com/miracle2k/onkyo-eiscp
 
 ## Author
 
