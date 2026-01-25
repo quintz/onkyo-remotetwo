@@ -16,6 +16,7 @@ class AvrDevice:
     id: str
     name: str
     address: str
+    series: str = "TX-NR6xx"  # Receiver series for command filtering
     always_on: bool = True
 
     def __post_init__(self):
@@ -104,6 +105,9 @@ class Devices:
 
             for device_data in data.get("devices", []):
                 try:
+                    # Handle backwards compatibility - add series if missing
+                    if "series" not in device_data:
+                        device_data["series"] = "TX-NR6xx"
                     device = AvrDevice(**device_data)
                     self._devices[device.id] = device
                 except (TypeError, ValueError) as e:
@@ -141,7 +145,7 @@ class Devices:
 devices: Devices | None = None
 
 
-def create_entity_id(avr_id: str, entity_type, suffix: str = "") -> str:
+def create_entity_id(avr_id: str, entity_type: str, suffix: str = "") -> str:
     """Create entity ID."""
     if suffix:
         return f"{entity_type}.onkyo_{avr_id}_{suffix}"
@@ -164,10 +168,10 @@ def avr_from_entity_id(entity_id: str) -> str | None:
 
     avr_id = entity_part[6:]  # Remove "onkyo_" prefix
 
-    # Remove any suffix (like _main, _zone2, _remote etc.)
-    for known_suffix in ["_remote", "_main", "_zone2", "_zone3"]:
-        if avr_id.endswith(known_suffix):
-            avr_id = avr_id[:-len(known_suffix)]
+    # Remove any suffix (like _main, _zone2, _remote, etc.)
+    for suffix in ["_main", "_zone2", "_remote"]:
+        if avr_id.endswith(suffix):
+            avr_id = avr_id[:-len(suffix)]
             break
 
     return avr_id

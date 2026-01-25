@@ -10,15 +10,21 @@ from typing import Any
 
 import ucapi
 from ucapi import EntityTypes, StatusCodes
-from ucapi.remote import Attributes, Commands, Features, States
+from ucapi.remote import Attributes, Commands, Features, Options, Remote, States
 
 from config import AvrDevice, create_entity_id
-from const import SIMPLE_COMMANDS, SIMPLE_COMMAND_MAP
+from const import (
+    get_commands_for_series,
+    get_command_map_for_series,
+    get_command_label,
+    SIMPLE_COMMANDS,
+    SIMPLE_COMMAND_MAP,
+)
 
 _LOG = logging.getLogger(__name__)
 
 
-class OnkyoRemote(ucapi.Remote):
+class OnkyoRemote(Remote):
     """Onkyo remote entity for simple commands."""
 
     def __init__(
@@ -53,13 +59,25 @@ class OnkyoRemote(ucapi.Remote):
             Attributes.STATE: States.OFF,
         }
 
-        # Initialize with simple_commands parameter (not options!)
+        # Get commands filtered by receiver series
+        series = getattr(device, 'series', 'TX-NR6xx')
+        self._supported_commands = get_commands_for_series(series)
+        self._command_map = get_command_map_for_series(series)
+        
+        _LOG.info("[%s] Receiver series: %s, supported commands: %d", 
+                  device.id, series, len(self._supported_commands))
+
+        # Options with filtered simple commands
+        options = {
+            Options.SIMPLE_COMMANDS: self._supported_commands,
+        }
+
         super().__init__(
             entity_id,
             f"{device.name} Remote",
             features,
             attributes,
-            simple_commands=SIMPLE_COMMANDS,  # ← Korrekter Parameter!
+            options=options,
         )
 
     def update_state(self, state: str):
@@ -151,8 +169,8 @@ class OnkyoRemote(ucapi.Remote):
             _LOG.warning("[%s] Empty command received", self.id)
             return StatusCodes.BAD_REQUEST
 
-        # Look up command in mapping
-        cmd_mapping = SIMPLE_COMMAND_MAP.get(command)
+        # Look up command in filtered mapping (series-specific)
+        cmd_mapping = self._command_map.get(command)
         
         if cmd_mapping:
             eiscp_cmd, value = cmd_mapping
@@ -160,5 +178,15 @@ class OnkyoRemote(ucapi.Remote):
             await self._receiver.send_raw_command(eiscp_cmd, value)
             return StatusCodes.OK
         else:
+            # Try global mapping as fallback
+            from const import SIMPLE_COMMAND_MAP
+            cmd_mapping = SIMPLE_COMMAND_MAP.get(command)
+            if cmd_mapping:
+                eiscp_cmd, value = cmd_mapping
+                _LOG.warning("[%s] Command %s not in series filter, using global mapping", 
+                            self.id, command)
+                await self._receiver.send_raw_command(eiscp_cmd, value)
+                return StatusCodes.OK
+            
             _LOG.warning("[%s] Unknown simple command: %s", self.id, command)
             return StatusCodes.BAD_REQUEST
