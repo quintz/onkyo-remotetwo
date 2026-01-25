@@ -10,7 +10,7 @@ from enum import IntEnum
 # =============================================================================
 # Version
 # =============================================================================
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 
 # =============================================================================
@@ -236,6 +236,31 @@ INPUT_SOURCES = {
 }
 
 SOURCE_TO_CODE = {v: k for k, v in INPUT_SOURCES.items()}
+
+
+def get_sources_for_series(series_id: str) -> list:
+    """
+    Get available input sources for a receiver series.
+    Returns a list of source names that can be used in SOURCE_LIST attribute.
+    """
+    # Common sources for all receivers (set1)
+    common_sources = [
+        "BD/DVD", "CBL/SAT", "GAME", "TV", "STRM BOX",
+        "CD", "TUNER", "PHONO", "AUX",
+        "NETWORK", "USB FRONT", "MUSIC SERVER", "INTERNET RADIO",
+    ]
+    
+    # Additional sources by series
+    series_sources = {
+        "TX-NR5xx": common_sources + ["BLUETOOTH", "AIRPLAY", "USB DAC", "PC", "AM", "FM"],
+        "TX-NR6xx": common_sources + ["BLUETOOTH", "AIRPLAY", "USB DAC", "PC", "AM", "FM"],
+        "TX-NR7xx": common_sources + ["BLUETOOTH", "AIRPLAY", "USB DAC", "PC", "AM", "FM", "MULTI CH"],
+        "TX-RZxxx": common_sources + ["BLUETOOTH", "AIRPLAY", "USB DAC", "PC", "AM", "FM", "MULTI CH"],
+        "TX-NR8xx-9xx": common_sources + ["BLUETOOTH", "AIRPLAY", "PC", "AM", "FM", "MULTI CH"],
+        "GENERIC": common_sources,
+    }
+    
+    return series_sources.get(series_id, common_sources)
 
 
 # =============================================================================

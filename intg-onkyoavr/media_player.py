@@ -10,15 +10,15 @@ from typing import Any
 
 import ucapi
 from ucapi import EntityTypes, StatusCodes
-from ucapi.media_player import Attributes, Commands, Features, MediaType, States
+from ucapi.media_player import Attributes, Commands, Features, MediaType, MediaPlayer, States
 
 from config import AvrDevice, create_entity_id
-from const import States as AvrStates, MEDIA_PLAYER_FEATURES
+from const import States as AvrStates, get_sources_for_series, LISTENING_MODES
 
 _LOG = logging.getLogger(__name__)
 
 
-class OnkyoMediaPlayer(ucapi.MediaPlayer):
+class OnkyoMediaPlayer(MediaPlayer):
     """Onkyo media player entity."""
 
     def __init__(
@@ -62,15 +62,23 @@ class OnkyoMediaPlayer(ucapi.MediaPlayer):
             Features.HOME,
         ]
 
-        # Initial attributes
+        # Get source list based on receiver series
+        series = getattr(device, 'series', 'TX-NR6xx')
+        source_list = get_sources_for_series(series)
+        sound_mode_list = list(LISTENING_MODES.values())[:20]  # Limit to 20 most common modes
+        
+        _LOG.info("[%s] Series: %s, Sources: %d, Sound modes: %d", 
+                  device.id, series, len(source_list), len(sound_mode_list))
+
+        # Initial attributes with source list for dropdown
         attributes = {
             Attributes.STATE: States.OFF,
             Attributes.VOLUME: 0,
             Attributes.MUTED: False,
             Attributes.SOURCE: "",
-            Attributes.SOURCE_LIST: receiver.source_list,
+            Attributes.SOURCE_LIST: source_list,  # This enables the dropdown!
             Attributes.SOUND_MODE: "",
-            Attributes.SOUND_MODE_LIST: receiver.sound_mode_list,
+            Attributes.SOUND_MODE_LIST: sound_mode_list,
             Attributes.MEDIA_TITLE: "",
             Attributes.MEDIA_ARTIST: "",
             Attributes.MEDIA_ALBUM: "",
