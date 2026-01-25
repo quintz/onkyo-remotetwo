@@ -16,7 +16,6 @@ from config import AvrDevice, create_entity_id
 from const import (
     get_commands_for_series,
     get_command_map_for_series,
-    get_command_label,
     SIMPLE_COMMANDS,
     SIMPLE_COMMAND_MAP,
 )
@@ -67,18 +66,19 @@ class OnkyoRemote(Remote):
         _LOG.info("[%s] Receiver series: %s, supported commands: %d", 
                   device.id, series, len(self._supported_commands))
 
-        # Options with filtered simple commands
-        options = {
-            Options.SIMPLE_COMMANDS: self._supported_commands,
-        }
-
+        # Call parent init WITHOUT options (ucapi 0.5.1 doesn't support it)
         super().__init__(
             entity_id,
             f"{device.name} Remote",
             features,
             attributes,
-            options=options,
         )
+        
+        # Set simple_commands option after init
+        # This is the workaround for ucapi 0.5.1
+        if not hasattr(self, 'options') or self.options is None:
+            self.options = {}
+        self.options[Options.SIMPLE_COMMANDS] = self._supported_commands
 
     def update_state(self, state: str):
         """
@@ -179,7 +179,6 @@ class OnkyoRemote(Remote):
             return StatusCodes.OK
         else:
             # Try global mapping as fallback
-            from const import SIMPLE_COMMAND_MAP
             cmd_mapping = SIMPLE_COMMAND_MAP.get(command)
             if cmd_mapping:
                 eiscp_cmd, value = cmd_mapping
