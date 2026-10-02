@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.2] - 2026-10-02
 
 ### Fixed
+- Driver crashed on startup when built with ucapi 0.6.0+ (`MediaType` removed) -> setup failed with "connection refused". ucapi is now pinned to 0.5.x.
+- Receiver was not connected after setup / on entity subscription: entity IDs look like `EntityTypes.MEDIA_PLAYER.onkyo_<id>` on Python 3.11, which `avr_from_entity_id` could not parse.
 - Connection to the receiver lost after the Remote woke up from standby (firmware 2.10.2+ reconnects integrations immediately after WiFi wake-up).
 - Concurrent connect calls (CONNECT, EXIT_STANDBY, SUBSCRIBE_ENTITIES) could open parallel connections whose listen tasks read the same stream and killed the connection.
 - intg-onkyoavr/driver.py was accidentally overwritten with driver.json content in 0.4.1 and has been restored.

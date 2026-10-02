@@ -1,2 +1,5 @@
-ucapi>=0.5.1
-pyee>=12.0.0
+# ucapi 0.6.0+ removed ucapi.media_player.MediaType (and changed other APIs).
+# Unpinned, the build pulls the newest ucapi and the driver crashes on startup
+# -> setup fails with "connection refused". Keep on 0.5.x until migrated.
+ucapi>=0.5.1,<0.6
+pyee>=12.0.0,<14

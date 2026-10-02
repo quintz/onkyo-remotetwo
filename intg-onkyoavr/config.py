@@ -157,12 +157,13 @@ def avr_from_entity_id(entity_id: str) -> str | None:
     if not entity_id or "onkyo_" not in entity_id:
         return None
 
-    parts = entity_id.split(".")
-    if len(parts) != 2:
-        return None
-
-    # Extract ID between "onkyo_" and any trailing suffix
-    entity_part = parts[1]
+    # On Python >= 3.11 the f-string in create_entity_id renders the enum as
+    # "EntityTypes.MEDIA_PLAYER", so IDs look like
+    # "EntityTypes.MEDIA_PLAYER.onkyo_192_168_1_50". The old check for exactly
+    # two parts returned None for those, so SUBSCRIBE_ENTITIES never connected
+    # the receiver. The IDs are kept as-is (existing activities reference
+    # them); only the last segment is parsed.
+    entity_part = entity_id.split(".")[-1]
     if not entity_part.startswith("onkyo_"):
         return None
 
