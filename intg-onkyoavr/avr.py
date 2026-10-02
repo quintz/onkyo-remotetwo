@@ -47,6 +47,13 @@ from const import (
 
 _LOG = logging.getLogger(__name__)
 
+# Reconnect delays in seconds (last value is repeated)
+RECONNECT_BACKOFF = (1, 2, 5, 10, 30)
+# Check the connection if nothing was received for this many seconds
+HEARTBEAT_INTERVAL = 30.0
+# Time the receiver has to answer the heartbeat query
+HEARTBEAT_TIMEOUT = 5.0
+
 
 class OnkyoDevice:
     """Represents an Onkyo AVR device."""
@@ -64,7 +71,10 @@ class OnkyoDevice:
         self.events = AsyncIOEventEmitter(self._loop)
 
         self._eiscp = eiscp.OnkyoEISCP(device_config.address, eiscp.EISCP_PORT)
+        self._eiscp.on_connection_lost = self._on_connection_lost
         self._active = False
+        self._conn_task: asyncio.Task | None = None
+        self._wake = asyncio.Event()
 
         # Main State
         self._state = States.OFF
@@ -185,28 +195,113 @@ class OnkyoDevice:
     # =========================================================================
 
     async def connect(self):
-        """Connect to AVR."""
-        _LOG.info("[%s] Connecting to %s", self.id, self._device_config.address)
+        """
+        Start (or keep) the connection to the AVR.
 
-        try:
-            connected = await self._eiscp.connect()
-            if connected:
-                self._active = True
-                self.events.emit(Events.CONNECTED, self.id)
-                await self.update()
-            else:
-                self.events.emit(Events.ERROR, self.id, "Connection failed")
+        Idempotent: calling it multiple times only runs one connection loop.
+        The loop connects, reconnects with backoff and checks the connection
+        with a heartbeat until disconnect() is called.
+        """
+        self._active = True
+        if self._conn_task and not self._conn_task.done():
+            # Loop already running - just wake it up so it checks immediately
+            self._wake.set()
+            return
+        _LOG.info("[%s] Starting connection loop to %s", self.id, self._device_config.address)
+        self._conn_task = self._loop.create_task(self._connection_loop())
 
-        except Exception as e:
-            _LOG.error("[%s] Connection error: %s", self.id, e)
-            self.events.emit(Events.ERROR, self.id, str(e))
+    async def reconnect(self):
+        """
+        Force a fresh connection, e.g. after the Remote woke up from standby.
+
+        The old TCP connection may be half-open after a long sleep, so it is
+        never trusted and always replaced.
+        """
+        _LOG.info("[%s] Forcing reconnect", self.id)
+        if self._conn_task and not self._conn_task.done():
+            await self._eiscp.disconnect()
+            self._wake.set()  # loop emits DISCONNECTED and reconnects immediately
+        else:
+            await self.connect()
 
     async def disconnect(self):
-        """Disconnect from AVR."""
+        """Stop the connection loop and disconnect from AVR."""
         _LOG.info("[%s] Disconnecting", self.id)
         self._active = False
+        task, self._conn_task = self._conn_task, None
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         await self._eiscp.disconnect()
         self.events.emit(Events.DISCONNECTED, self.id)
+
+    def _on_connection_lost(self):
+        """Called by the eISCP layer when the connection dropped unexpectedly."""
+        self._wake.set()
+
+    async def _wait_or_wake(self, timeout: float) -> bool:
+        """Sleep up to `timeout` seconds. Returns True if woken up early."""
+        try:
+            await asyncio.wait_for(self._wake.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
+        finally:
+            self._wake.clear()
+
+    async def _connection_loop(self):
+        """Connect, reconnect with backoff and supervise the connection."""
+        attempt = 0
+        was_connected = False
+        try:
+            while self._active:
+                # ---- not connected: try to connect --------------------------
+                if not self._eiscp.connected:
+                    if was_connected:
+                        was_connected = False
+                        self.events.emit(Events.DISCONNECTED, self.id)
+
+                    if await self._eiscp.connect():
+                        attempt = 0
+                        was_connected = True
+                        self.events.emit(Events.CONNECTED, self.id)
+                        await self.update()
+                        continue
+
+                    if attempt == 0:
+                        self.events.emit(Events.ERROR, self.id, "Connection failed, retrying")
+                    delay = RECONNECT_BACKOFF[min(attempt, len(RECONNECT_BACKOFF) - 1)]
+                    attempt += 1
+                    _LOG.info("[%s] Reconnect attempt %d in %.0fs", self.id, attempt, delay)
+                    await self._wait_or_wake(delay)
+                    continue
+
+                # ---- connected: supervise with heartbeat ---------------------
+                if await self._wait_or_wake(HEARTBEAT_INTERVAL):
+                    continue  # woken up: connection lost or reconnect requested
+
+                loop_time = self._loop.time()
+                if loop_time - self._eiscp.last_rx < HEARTBEAT_INTERVAL:
+                    continue  # recent traffic, connection is alive
+
+                sent_at = loop_time
+                await self._eiscp.send_command(CMD_POWER, "QSTN")
+                if await self._wait_or_wake(HEARTBEAT_TIMEOUT):
+                    continue
+                if self._eiscp.connected and self._eiscp.last_rx < sent_at:
+                    _LOG.warning(
+                        "[%s] No heartbeat answer within %.0fs - connection is stale, reconnecting",
+                        self.id, HEARTBEAT_TIMEOUT,
+                    )
+                    await self._eiscp.disconnect()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            _LOG.exception("[%s] Connection loop crashed: %s", self.id, e)
+            self.events.emit(Events.ERROR, self.id, str(e))
 
     async def update(self):
         """Update AVR state by querying current values."""

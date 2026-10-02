@@ -1,6 +1,6 @@
 {
   "driver_id": "onkyoavr",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "min_core_api": "0.20.0",
   "name": {
     "en": "Onkyo AVR"
@@ -67,5 +67,5 @@
     "url": "https://github.com/quintz"
   },
   "home_page": "https://github.com/quintz/integration-onkyoavr",
-  "release_date": "2025-01-25"
+  "release_date": "2026-10-02"
 }

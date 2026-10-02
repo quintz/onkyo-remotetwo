@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-02
+
+### Fixed
+- Connection to the receiver lost after the Remote woke up from standby (firmware 2.10.2+ reconnects integrations immediately after WiFi wake-up).
+- Concurrent connect calls (CONNECT, EXIT_STANDBY, SUBSCRIBE_ENTITIES) could open parallel connections whose listen tasks read the same stream and killed the connection.
+- intg-onkyoavr/driver.py was accidentally overwritten with driver.json content in 0.4.1 and has been restored.
+
+### Added
+- Automatic reconnect with backoff (1, 2, 5, 10, 30 s).
+- Heartbeat (PWRQSTN after 30 s without traffic, 5 s answer timeout) to detect half-open connections.
+- TCP keepalive on the eISCP socket.
+- On EXIT_STANDBY the connection is always replaced by a fresh one.
+
 ## [0.1.0] - 2025-01-19
 
 ### Added
