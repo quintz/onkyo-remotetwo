@@ -3,8 +3,10 @@ import dataclasses
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterator
+
+from ucapi import EntityTypes
 
 _LOG = logging.getLogger(__name__)
 
@@ -18,6 +20,13 @@ class AvrDevice:
     address: str
     series: str = "TX-NR6xx"  # Receiver series for command filtering
     always_on: bool = True
+    # Visible inputs / listening modes as [code, display name] in UI order.
+    # Empty = automatic (inputs from the receiver, default mode list).
+    inputs: list = field(default_factory=list)
+    modes: list = field(default_factory=list)
+    # From the receiver's NRI info (setup); modern = 2016+ mode names.
+    model: str = ""
+    modern: bool | None = None
 
     def __post_init__(self):
         """Validate configuration."""
@@ -25,6 +34,8 @@ class AvrDevice:
             raise ValueError("Device id cannot be empty")
         if not self.address:
             raise ValueError("Device address cannot be empty")
+        self.inputs = [(str(c).upper(), str(n)) for c, n in (self.inputs or [])]
+        self.modes = [(str(c).upper(), str(n)) for c, n in (self.modes or [])]
 
 
 class Devices:
@@ -60,6 +71,13 @@ class Devices:
         self._devices[device.id] = device
         self.store()
 
+        if self._add_handler:
+            self._add_handler(device)
+
+    def add_or_update(self, device: AvrDevice) -> None:
+        """Add a device or replace the existing one with the same id (re-run setup)."""
+        self._devices[device.id] = device
+        self.store()
         if self._add_handler:
             self._add_handler(device)
 
@@ -108,7 +126,8 @@ class Devices:
                     # Handle backwards compatibility - add series if missing
                     if "series" not in device_data:
                         device_data["series"] = "TX-NR6xx"
-                    device = AvrDevice(**device_data)
+                    known = {f.name for f in dataclasses.fields(AvrDevice)}
+                    device = AvrDevice(**{k: v for k, v in device_data.items() if k in known})
                     self._devices[device.id] = device
                 except (TypeError, ValueError) as e:
                     _LOG.error("Invalid device configuration: %s", e)
@@ -146,10 +165,24 @@ devices: Devices | None = None
 
 
 def create_entity_id(avr_id: str, entity_type: str, suffix: str = "") -> str:
-    """Create entity ID."""
+    """
+    Create entity ID.
+
+    Up to v0.4.x (ucapi 0.5, Python 3.11) the f-string rendered the
+    (str, Enum) entity type as "EntityTypes.MEDIA_PLAYER", so existing
+    installations have IDs like "EntityTypes.MEDIA_PLAYER.onkyo_192_168_1_50".
+    Since ucapi 0.6 EntityTypes is a StrEnum and would render as
+    "media_player" -> new IDs -> activities lose their entities.
+    So the legacy prefix is built explicitly here and must not change.
+    """
+    try:
+        type_name = EntityTypes(entity_type).name
+    except ValueError:
+        type_name = str(entity_type).upper()
+    prefix = f"EntityTypes.{type_name}"
     if suffix:
-        return f"{entity_type}.onkyo_{avr_id}_{suffix}"
-    return f"{entity_type}.onkyo_{avr_id}"
+        return f"{prefix}.onkyo_{avr_id}_{suffix}"
+    return f"{prefix}.onkyo_{avr_id}"
 
 
 def avr_from_entity_id(entity_id: str) -> str | None:
@@ -170,7 +203,7 @@ def avr_from_entity_id(entity_id: str) -> str | None:
     avr_id = entity_part[6:]  # Remove "onkyo_" prefix
 
     # Remove any suffix (like _main, _zone2, _remote, etc.)
-    for suffix in ["_main", "_zone2", "_remote"]:
+    for suffix in ["_main", "_zone2", "_remote", "_input", "_soundmode"]:
         if avr_id.endswith(suffix):
             avr_id = avr_id[:-len(suffix)]
             break

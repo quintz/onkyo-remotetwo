@@ -1,5 +1,5 @@
-# ucapi 0.6.0+ removed ucapi.media_player.MediaType (and changed other APIs).
-# Unpinned, the build pulls the newest ucapi and the driver crashes on startup
-# -> setup fails with "connection refused". Keep on 0.5.x until migrated.
-ucapi>=0.5.1,<0.6
+# ucapi 0.7 (StrEnum, keyword-only entity args, MediaContentType).
+# Pinned to the 0.7 line: 0.6 already had breaking changes, so the next minor
+# may too. Entity IDs keep the legacy format, see config.create_entity_id().
+ucapi>=0.7.0,<0.8
 pyee>=12.0.0,<14

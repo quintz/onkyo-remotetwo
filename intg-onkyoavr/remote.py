@@ -10,13 +10,12 @@ from typing import Any
 
 import ucapi
 from ucapi import EntityTypes, StatusCodes
-from ucapi.remote import Attributes, Commands, Features, Options, Remote, States
+from ucapi.remote import Attributes, Commands, Features, Remote, States
 
 from config import AvrDevice, create_entity_id
 from const import (
     get_commands_for_series,
     get_command_map_for_series,
-    SIMPLE_COMMANDS,
     SIMPLE_COMMAND_MAP,
 )
 
@@ -66,19 +65,13 @@ class OnkyoRemote(Remote):
         _LOG.info("[%s] Receiver series: %s, supported commands: %d", 
                   device.id, series, len(self._supported_commands))
 
-        # Call parent init WITHOUT options (ucapi 0.5.1 doesn't support it)
         super().__init__(
             entity_id,
             f"{device.name} Remote",
             features,
             attributes,
+            simple_commands=self._supported_commands,
         )
-        
-        # Set simple_commands option after init
-        # This is the workaround for ucapi 0.5.1
-        if not hasattr(self, 'options') or self.options is None:
-            self.options = {}
-        self.options[Options.SIMPLE_COMMANDS] = self._supported_commands
 
     def update_state(self, state: str):
         """
@@ -100,14 +93,15 @@ class OnkyoRemote(Remote):
         self, 
         cmd_id: str, 
         params: dict[str, Any] | None = None,
-        entity_type: str | None = None
+        *,
+        websocket: Any = None,
     ) -> StatusCodes:
         """
         Handle remote commands.
         
         :param cmd_id: Command ID
         :param params: Command parameters
-        :param entity_type: Entity type (from ucapi >= 0.5.0)
+        :param websocket: client connection (ucapi >= 0.5, unused)
         :return: Status code
         """
         _LOG.info("[%s] Remote command: %s %s", self.id, cmd_id, params)

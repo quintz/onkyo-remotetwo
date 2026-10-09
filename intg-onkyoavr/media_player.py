@@ -10,10 +10,18 @@ from typing import Any
 
 import ucapi
 from ucapi import EntityTypes, StatusCodes
-from ucapi.media_player import Attributes, Commands, Features, MediaType, MediaPlayer, States
+from ucapi.media_player import (
+    Attributes,
+    Commands,
+    DeviceClasses,
+    Features,
+    MediaContentType,
+    MediaPlayer,
+    States,
+)
 
 from config import AvrDevice, create_entity_id
-from const import States as AvrStates, get_sources_for_series, LISTENING_MODES
+from const import States as AvrStates
 
 _LOG = logging.getLogger(__name__)
 
@@ -62,13 +70,12 @@ class OnkyoMediaPlayer(MediaPlayer):
             Features.HOME,
         ]
 
-        # Get source list based on receiver series
-        series = getattr(device, 'series', 'TX-NR6xx')
-        source_list = get_sources_for_series(series)
-        sound_mode_list = list(LISTENING_MODES.values())[:20]  # Limit to 20 most common modes
-        
-        _LOG.info("[%s] Series: %s, Sources: %d, Sound modes: %d", 
-                  device.id, series, len(source_list), len(sound_mode_list))
+        # Input / sound mode lists come from the receiver's name tables
+        # (setup, NRI or defaults, see names.py)
+        source_list = list(receiver.source_list)
+        sound_mode_list = list(receiver.sound_mode_list)
+
+        _LOG.info("[%s] Sources: %d, Sound modes: %d", device.id, len(source_list), len(sound_mode_list))
 
         # Initial attributes with source list for dropdown
         attributes = {
@@ -84,7 +91,7 @@ class OnkyoMediaPlayer(MediaPlayer):
             Attributes.MEDIA_ALBUM: "",
             Attributes.MEDIA_POSITION: 0,
             Attributes.MEDIA_DURATION: 0,
-            Attributes.MEDIA_TYPE: MediaType.MUSIC,
+            Attributes.MEDIA_TYPE: MediaContentType.MUSIC,
         }
 
         super().__init__(
@@ -92,7 +99,7 @@ class OnkyoMediaPlayer(MediaPlayer):
             device.name,
             features,
             attributes,
-            device_class="receiver",
+            device_class=DeviceClasses.RECEIVER,
         )
 
     def _state_from_avr(self, avr_state: str) -> str:
@@ -111,6 +118,15 @@ class OnkyoMediaPlayer(MediaPlayer):
             AvrStates.UNAVAILABLE: States.UNAVAILABLE,
         }
         return state_map.get(avr_state, States.UNKNOWN)
+
+    def refresh_lists(self) -> None:
+        """Push the current source / sound mode lists to the remote."""
+        self.update_attributes(
+            {
+                Attributes.SOURCE_LIST: list(self._receiver.source_list),
+                Attributes.SOUND_MODE_LIST: list(self._receiver.sound_mode_list),
+            }
+        )
 
     def update_attributes(self, update: dict[str, Any], force: bool = False):
         """
@@ -151,14 +167,15 @@ class OnkyoMediaPlayer(MediaPlayer):
         self, 
         cmd_id: str, 
         params: dict[str, Any] | None = None,
-        entity_type: str | None = None
+        *,
+        websocket: Any = None,
     ) -> StatusCodes:
         """
         Handle media player commands.
         
         :param cmd_id: Command ID
         :param params: Command parameters
-        :param entity_type: Entity type (from ucapi >= 0.5.0)
+        :param websocket: client connection (ucapi >= 0.5, unused)
         :return: Status code
         """
         _LOG.info("[%s] Command: %s %s", self.id, cmd_id, params)
@@ -210,14 +227,14 @@ class OnkyoMediaPlayer(MediaPlayer):
             # Source selection
             if cmd_id == Commands.SELECT_SOURCE:
                 source = params.get("source", "") if params else ""
-                await self._receiver.select_source(source)
-                return StatusCodes.OK
+                ok = await self._receiver.select_source(source)
+                return StatusCodes.OK if ok else StatusCodes.BAD_REQUEST
 
             # Sound mode selection
             if cmd_id == Commands.SELECT_SOUND_MODE:
                 mode = params.get("mode", "") if params else ""
-                await self._receiver.select_sound_mode(mode)
-                return StatusCodes.OK
+                ok = await self._receiver.select_sound_mode(mode)
+                return StatusCodes.OK if ok else StatusCodes.BAD_REQUEST
 
             # Playback commands
             if cmd_id == Commands.PLAY_PAUSE:

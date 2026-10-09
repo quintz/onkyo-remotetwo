@@ -10,7 +10,7 @@ from enum import IntEnum
 # =============================================================================
 # Version
 # =============================================================================
-__version__ = "0.4.2"
+__version__ = "0.5.0"
 
 
 # =============================================================================
@@ -23,6 +23,7 @@ class Events(IntEnum):
     ERROR = 2
     UPDATE = 3
     IP_ADDRESS_CHANGED = 4
+    LISTS_CHANGED = 5  # input / listening mode lists changed
 
 
 # =============================================================================
@@ -190,197 +191,9 @@ CMD_DEVICE_MEMORY = "DMS"   # Device Memory Status
 
 
 # =============================================================================
-# Input Sources - Complete mapping for Onkyo receivers
+# Input sources / listening modes: see names.py (code tables, default lists,
+# per-device names).
 # =============================================================================
-INPUT_SOURCES = {
-    "00": "VIDEO1",
-    "01": "CBL/SAT",
-    "02": "GAME",
-    "03": "AUX",
-    "04": "AUX2",
-    "05": "PC",
-    "06": "VIDEO6",
-    "07": "VIDEO7",
-    "10": "BD/DVD",
-    "11": "STRM BOX",
-    "12": "TV",
-    "13": "TAPE1",
-    "14": "TAPE2",
-    "20": "PHONO",
-    "21": "TV/CD",
-    "22": "TUNER",
-    "23": "CD",
-    "24": "FM",
-    "25": "AM",
-    "26": "TUNER",
-    "27": "MUSIC SERVER",
-    "28": "INTERNET RADIO",
-    "29": "USB FRONT",
-    "2A": "USB REAR",
-    "2B": "NETWORK",
-    "2C": "USB TOGGLE",
-    "2D": "BLUETOOTH",
-    "2E": "AIRPLAY",
-    "2F": "USB DAC",
-    "30": "MULTI CH",
-    "31": "XM",
-    "32": "SIRIUS",
-    "33": "DAB",
-    "40": "UNIVERSAL PORT",
-    "41": "LINE",
-    "42": "LINE2",
-    "55": "HDMI5",
-    "56": "HDMI6",
-    "57": "HDMI7",
-    "80": "SOURCE",
-}
-
-SOURCE_TO_CODE = {v: k for k, v in INPUT_SOURCES.items()}
-
-
-def get_sources_for_series(series_id: str) -> list:
-    """
-    Get available input sources for a receiver series.
-    Returns a list of source names that can be used in SOURCE_LIST attribute.
-    """
-    # Common sources for all receivers (set1)
-    common_sources = [
-        "BD/DVD", "CBL/SAT", "GAME", "TV", "STRM BOX",
-        "CD", "TUNER", "PHONO", "AUX",
-        "NETWORK", "USB FRONT", "MUSIC SERVER", "INTERNET RADIO",
-    ]
-    
-    # Additional sources by series
-    series_sources = {
-        "TX-NR5xx": common_sources + ["BLUETOOTH", "AIRPLAY", "USB DAC", "PC", "AM", "FM"],
-        "TX-NR6xx": common_sources + ["BLUETOOTH", "AIRPLAY", "USB DAC", "PC", "AM", "FM"],
-        "TX-NR7xx": common_sources + ["BLUETOOTH", "AIRPLAY", "USB DAC", "PC", "AM", "FM", "MULTI CH"],
-        "TX-RZxxx": common_sources + ["BLUETOOTH", "AIRPLAY", "USB DAC", "PC", "AM", "FM", "MULTI CH"],
-        "TX-NR8xx-9xx": common_sources + ["BLUETOOTH", "AIRPLAY", "PC", "AM", "FM", "MULTI CH"],
-        "GENERIC": common_sources,
-    }
-    
-    return series_sources.get(series_id, common_sources)
-
-
-# =============================================================================
-# Input Source Labels - Human-readable names for Remote Two display
-# =============================================================================
-INPUT_SOURCE_LABELS = {
-    "VIDEO1": "Video 1",
-    "CBL/SAT": "Cable / Satellite",
-    "GAME": "Game",
-    "AUX": "AUX",
-    "AUX2": "AUX 2",
-    "PC": "PC",
-    "BD/DVD": "Blu-ray / DVD",
-    "STRM BOX": "Streaming Box",
-    "TV": "TV",
-    "PHONO": "Phono",
-    "TV/CD": "TV / CD",
-    "TUNER": "Tuner",
-    "CD": "CD",
-    "FM": "FM Radio",
-    "AM": "AM Radio",
-    "MUSIC SERVER": "Music Server",
-    "INTERNET RADIO": "Internet Radio",
-    "USB FRONT": "USB (Front)",
-    "USB REAR": "USB (Rear)",
-    "NETWORK": "Network",
-    "BLUETOOTH": "Bluetooth",
-    "AIRPLAY": "AirPlay",
-    "USB DAC": "USB DAC",
-    "MULTI CH": "Multi-Channel",
-    "LINE": "Line In",
-    "LINE2": "Line In 2",
-}
-
-
-def get_source_label(source_name: str) -> str:
-    """Get human-readable label for a source name."""
-    return INPUT_SOURCE_LABELS.get(source_name, source_name)
-
-
-# =============================================================================
-# Listening Modes
-# =============================================================================
-LISTENING_MODES = {
-    "00": "STEREO",
-    "01": "DIRECT",
-    "02": "SURROUND",
-    "03": "FILM",
-    "04": "THX",
-    "05": "ACTION",
-    "06": "MUSICAL",
-    "07": "MONO MOVIE",
-    "08": "ORCHESTRA",
-    "09": "UNPLUGGED",
-    "0A": "STUDIO-MIX",
-    "0B": "TV LOGIC",
-    "0C": "ALL CH STEREO",
-    "0D": "THEATER-DIMENSIONAL",
-    "0E": "ENHANCED",
-    "0F": "MONO",
-    "11": "PURE AUDIO",
-    "12": "MULTIPLEX",
-    "13": "FULL MONO",
-    "40": "STRAIGHT DECODE",
-    "41": "DOLBY EX/DTS ES",
-    "42": "THX CINEMA",
-    "43": "THX SURROUND EX",
-    "44": "THX MUSIC",
-    "45": "THX GAMES",
-    "80": "PLII/PLIIx MOVIE",
-    "81": "PLII/PLIIx MUSIC",
-    "82": "NEO:6 CINEMA",
-    "83": "NEO:6 MUSIC",
-    "84": "PLII/PLIIx THX CINEMA",
-    "85": "NEO:6 THX CINEMA",
-    "86": "PLII/PLIIx GAME",
-    "FF": "AUTO SURROUND",
-}
-
-LISTENING_MODE_TO_CODE = {v: k for k, v in LISTENING_MODES.items()}
-
-
-# =============================================================================
-# Listening Mode Labels
-# =============================================================================
-LISTENING_MODE_LABELS = {
-    "STEREO": "Stereo",
-    "DIRECT": "Direct",
-    "SURROUND": "Surround",
-    "FILM": "Film",
-    "THX": "THX",
-    "ACTION": "Action",
-    "MUSICAL": "Musical",
-    "MONO MOVIE": "Mono Movie",
-    "ORCHESTRA": "Orchestra",
-    "UNPLUGGED": "Unplugged",
-    "STUDIO-MIX": "Studio Mix",
-    "TV LOGIC": "TV Logic",
-    "ALL CH STEREO": "All Channel Stereo",
-    "THEATER-DIMENSIONAL": "Theater Dimensional",
-    "ENHANCED": "Enhanced",
-    "MONO": "Mono",
-    "PURE AUDIO": "Pure Audio",
-    "STRAIGHT DECODE": "Straight Decode",
-    "DOLBY EX/DTS ES": "Dolby EX / DTS ES",
-    "THX CINEMA": "THX Cinema",
-    "THX SURROUND EX": "THX Surround EX",
-    "THX MUSIC": "THX Music",
-    "THX GAMES": "THX Games",
-    "PLII/PLIIx MOVIE": "Dolby PLII Movie",
-    "PLII/PLIIx MUSIC": "Dolby PLII Music",
-    "NEO:6 CINEMA": "DTS Neo:6 Cinema",
-    "NEO:6 MUSIC": "DTS Neo:6 Music",
-    "AUTO SURROUND": "Auto Surround",
-}
-
-
-def get_listening_mode_label(mode_name: str) -> str:
-    """Get human-readable label for a listening mode."""
-    return LISTENING_MODE_LABELS.get(mode_name, mode_name)
 
 
 # =============================================================================
@@ -419,8 +232,8 @@ SIMPLE_COMMAND_DEFINITIONS = {
     # Network/USB Inputs - set3 (newer receivers)
     "INPUT_USB": ("set3", (CMD_INPUT, "29")),
     "INPUT_NETWORK": ("set3", (CMD_INPUT, "2B")),
-    "INPUT_BLUETOOTH": ("set3", (CMD_INPUT, "2D")),
-    "INPUT_AIRPLAY": ("set3", (CMD_INPUT, "2E")),
+    "INPUT_BLUETOOTH": ("set3", (CMD_INPUT, "2E")),
+    "INPUT_AIRPLAY": ("set3", (CMD_INPUT, "2D")),
     "INPUT_MUSIC_SERVER": ("set3", (CMD_INPUT, "27")),
     "INPUT_INTERNET_RADIO": ("set3", (CMD_INPUT, "28")),
     
@@ -433,13 +246,17 @@ SIMPLE_COMMAND_DEFINITIONS = {
     "LISTENING_MODE_STEREO": ("set1", (CMD_LISTENING_MODE, "00")),
     "LISTENING_MODE_DIRECT": ("set1", (CMD_LISTENING_MODE, "01")),
     "LISTENING_MODE_SURROUND": ("set1", (CMD_LISTENING_MODE, "02")),
-    "LISTENING_MODE_FILM": ("set1", (CMD_LISTENING_MODE, "03")),
-    "LISTENING_MODE_MUSIC": ("set1", (CMD_LISTENING_MODE, "06")),
-    "LISTENING_MODE_GAME": ("set1", (CMD_LISTENING_MODE, "05")),
+    "LISTENING_MODE_FILM": ("set1", (CMD_LISTENING_MODE, "MOVIE")),  # cycles Movie/TV modes
+    "LISTENING_MODE_MUSIC": ("set1", (CMD_LISTENING_MODE, "MUSIC")),  # cycles Music modes
+    "LISTENING_MODE_GAME": ("set1", (CMD_LISTENING_MODE, "GAME")),  # cycles Game modes
     "LISTENING_MODE_THX": ("set1", (CMD_LISTENING_MODE, "04")),
     "LISTENING_MODE_ALL_CH_STEREO": ("set1", (CMD_LISTENING_MODE, "0C")),
     "LISTENING_MODE_PURE_AUDIO": ("set1", (CMD_LISTENING_MODE, "11")),
     "LISTENING_MODE_AUTO": ("set1", (CMD_LISTENING_MODE, "FF")),
+    "LISTENING_MODE_MONO": ("set1", (CMD_LISTENING_MODE, "0F")),
+    "LISTENING_MODE_STRAIGHT": ("set1", (CMD_LISTENING_MODE, "40")),
+    "LISTENING_MODE_DOLBY_SURR": ("set1", (CMD_LISTENING_MODE, "80")),
+    "LISTENING_MODE_NEURAL_X": ("set1", (CMD_LISTENING_MODE, "82")),
     "LISTENING_MODE_UP": ("set1", (CMD_LISTENING_MODE, "UP")),
     "LISTENING_MODE_DOWN": ("set1", (CMD_LISTENING_MODE, "DOWN")),
     
@@ -569,13 +386,17 @@ SIMPLE_COMMAND_LABELS = {
     "LISTENING_MODE_STEREO": "Stereo",
     "LISTENING_MODE_DIRECT": "Direct",
     "LISTENING_MODE_SURROUND": "Surround",
-    "LISTENING_MODE_FILM": "Film",
-    "LISTENING_MODE_MUSIC": "Music",
-    "LISTENING_MODE_GAME": "Game",
+    "LISTENING_MODE_FILM": "Movie/TV (cycle)",
+    "LISTENING_MODE_MUSIC": "Music (cycle)",
+    "LISTENING_MODE_GAME": "Game (cycle)",
     "LISTENING_MODE_THX": "THX",
     "LISTENING_MODE_ALL_CH_STEREO": "All Ch Stereo",
     "LISTENING_MODE_PURE_AUDIO": "Pure Audio",
     "LISTENING_MODE_AUTO": "Auto Surround",
+    "LISTENING_MODE_MONO": "Mono",
+    "LISTENING_MODE_STRAIGHT": "Straight Decode",
+    "LISTENING_MODE_DOLBY_SURR": "Dolby Atmos/Surround (PLII)",
+    "LISTENING_MODE_NEURAL_X": "DTS:X/Neural:X (Neo:6)",
     "LISTENING_MODE_UP": "Mode Up",
     "LISTENING_MODE_DOWN": "Mode Down",
     "DIMMER_BRIGHT": "Display Bright",

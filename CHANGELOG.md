@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-09
+
+### Added
+- Select entities (dropdowns) for input source and listening mode.
+- Own names for inputs and listening modes, unused ones can be hidden: editable "Code = Name" lists in the setup. Media player, dropdowns and stored activities use the same names.
+- Input names and model are read from the receiver (`NRIQSTN`, models ~2016+). For configurations from 0.4.x without own names this happens automatically on connect.
+- Running the setup again (reconfigure): edit names, add another receiver, remove a receiver. Entering the IP of an existing receiver updates it instead of silently doing nothing.
+- Listening mode names for models from 2016 on (Dolby Atmos/Surround, DTS:X/Neural:X, DTS Virtual:X, Game-RPG/Action/Rock/Sports, AllCh Stereo, Full Mono, Pure Direct).
+- Simple commands `LISTENING_MODE_MONO`, `LISTENING_MODE_STRAIGHT`, `LISTENING_MODE_DOLBY_SURR`, `LISTENING_MODE_NEURAL_X`.
+- Mock receiver (`tests/mock_receiver.py`) and end-to-end test (`tests/test_e2e.py`), run in CI.
+
+### Fixed
+- Wrong input codes: PHONO sent the code of TAPE (20 instead of 22), CD/TUNER/TV-CD were shifted, BLUETOOTH and AIRPLAY were swapped (also in the simple commands `INPUT_BLUETOOTH` / `INPUT_AIRPLAY`).
+- Listening mode names were the pre-2016 ones, so e.g. Dolby Surround was shown as "PLII/PLIIx MOVIE" and Game-RPG as "FILM".
+- `LISTENING_MODE_FILM` / `_MUSIC` / `_GAME` now cycle through the Movie/TV, Music and Game categories (like the buttons on the Onkyo remote). Before they set fixed codes that mean something else on newer models (e.g. MUSIC -> Game-Rock).
+- Re-running the setup for an existing receiver did nothing ("Device already exists").
+- Remote entity state did not follow the receiver power state (the update dict was modified before it was checked).
+
+## [0.4.3] - 2026-10-03
+
+### Changed
+- Updated ucapi from 0.5.x to 0.7 (pinned to `>=0.7.0,<0.8`).
+  - `MediaType` -> `MediaContentType`, device class via `DeviceClasses.RECEIVER`.
+  - Entity `command()` uses the current signature (`websocket` keyword) instead of the legacy fallback.
+  - Remote entity passes `simple_commands` directly instead of patching `options` after init.
+  - With newer firmware only entity types the Remote supports are announced. Older firmware gets all entities after a 5 s timeout.
+- Driver creates its own event loop instead of the deprecated `asyncio.get_event_loop()`.
+
+### Fixed
+- Entity IDs stay unchanged (`EntityTypes.MEDIA_PLAYER.onkyo_<id>`). With ucapi 0.6+ they would have become `media_player.onkyo_<id>`, and existing activities would have lost their Onkyo entities.
+
 ## [0.4.2] - 2026-10-02
 
 ### Fixed

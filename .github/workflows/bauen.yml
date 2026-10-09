@@ -15,6 +15,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python (for tests)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run end-to-end test (mock receiver)
+        run: |
+          python -m pip install -r requirements.txt websockets
+          python tests/test_e2e.py
+
       - name: Fetch version
         id: version
         run: |

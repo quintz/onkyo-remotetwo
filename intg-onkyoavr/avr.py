@@ -7,7 +7,6 @@ Onkyo AVR device representation.
 
 import asyncio
 import logging
-from typing import Any
 
 from pyee.asyncio import AsyncIOEventEmitter
 
@@ -39,11 +38,12 @@ from const import (
     CMD_ZONE2_POWER,
     CMD_ZONE2_VOLUME,
     CMD_ZONE2_MUTE,
-    INPUT_SOURCES,
-    SOURCE_TO_CODE,
-    LISTENING_MODES,
-    LISTENING_MODE_TO_CODE,
 )
+import names
+from names import NameTable, ReceiverInfo
+
+CMD_RECEIVER_INFO = "NRI"
+NRI_TIMEOUT = 5.0
 
 _LOG = logging.getLogger(__name__)
 
@@ -81,11 +81,18 @@ class OnkyoDevice:
         self._volume = 0
         self._muted = False
         self._source = ""
-        self._source_list = list(INPUT_SOURCES.values())
-        
+        self._source_code = ""
+
         # Extended State
         self._listening_mode = ""
-        self._listening_mode_list = list(LISTENING_MODES.values())
+        self._mode_code = ""
+
+        # Input / listening mode names (see names.py)
+        self._nri: ReceiverInfo | None = None
+        self._nri_waiters: list[asyncio.Future] = []
+        self.inputs: NameTable = names.make_inputs([])
+        self.modes: NameTable = names.make_modes([], True)
+        self._build_name_tables()
         self._title = ""
         self._artist = ""
         self._album = ""
@@ -103,6 +110,7 @@ class OnkyoDevice:
         self._eiscp.register_callback(CMD_MUTE, self._on_mute_update)
         self._eiscp.register_callback(CMD_INPUT, self._on_input_update)
         self._eiscp.register_callback(CMD_LISTENING_MODE, self._on_listening_mode_update)
+        self._eiscp.register_callback(CMD_RECEIVER_INFO, self._on_receiver_info)
         
         # Info commands
         self._eiscp.register_callback(CMD_AUDIO_INFO, self._on_audio_info)
@@ -131,6 +139,16 @@ class OnkyoDevice:
         return self._active
 
     @property
+    def address(self) -> str:
+        """Receiver IP address."""
+        return self._device_config.address
+
+    @property
+    def connected(self) -> bool:
+        """True while the eISCP connection is up."""
+        return self._eiscp.connected
+
+    @property
     def state(self) -> str:
         """Return current state."""
         return self._state
@@ -152,8 +170,8 @@ class OnkyoDevice:
 
     @property
     def source_list(self) -> list:
-        """Return list of available sources."""
-        return self._source_list
+        """Return list of available sources (display names)."""
+        return self.inputs.names
 
     @property
     def sound_mode(self) -> str:
@@ -162,8 +180,87 @@ class OnkyoDevice:
 
     @property
     def sound_mode_list(self) -> list:
-        """Return list of available sound modes."""
-        return self._listening_mode_list
+        """Return list of available sound modes (display names)."""
+        return self.modes.names
+
+    @property
+    def receiver_info(self) -> ReceiverInfo | None:
+        """Model/year/inputs reported by the receiver (NRI), if any."""
+        return self._nri
+
+    # =========================================================================
+    # Input / listening mode names
+    # =========================================================================
+
+    def _modern(self) -> bool:
+        cfg = self._device_config
+        if cfg.modern is not None:
+            return cfg.modern
+        if self._nri is not None:
+            return self._nri.modern
+        return True
+
+    def _build_name_tables(self) -> None:
+        """(Re)build name tables from config, receiver info and defaults."""
+        cfg = self._device_config
+        modern = self._modern()
+        if cfg.inputs:
+            inputs = list(cfg.inputs)
+        elif self._nri is not None and self._nri.inputs:
+            inputs = list(self._nri.inputs)
+        else:
+            inputs = names.default_inputs()
+        modes = list(cfg.modes) if cfg.modes else names.default_modes(modern)
+        self.inputs = names.make_inputs(inputs)
+        self.modes = names.make_modes(modes, modern)
+        if self._source_code:
+            self._source = self.inputs.name_for(self._source_code)
+        if self._mode_code:
+            self._listening_mode = self.modes.name_for(self._mode_code)
+
+    def apply_config(self, device_config: AvrDevice) -> None:
+        """Use new settings (setup was run again) without reconnecting."""
+        self._device_config = device_config
+        self._build_name_tables()
+        self.events.emit(Events.LISTS_CHANGED, self.id)
+        self.events.emit(Events.UPDATE, self.id, {"source": self._source, "sound_mode": self._listening_mode})
+
+    @property
+    def _needs_receiver_info(self) -> bool:
+        cfg = self._device_config
+        return not cfg.inputs or cfg.modern is None
+
+    async def query_receiver_info(self, timeout: float = NRI_TIMEOUT) -> ReceiverInfo | None:
+        """Ask the receiver for its info (model, year, input names). None if unsupported."""
+        if not self._eiscp.connected:
+            return None
+        fut = self._loop.create_future()
+        self._nri_waiters.append(fut)
+        try:
+            await self._eiscp.send_command(CMD_RECEIVER_INFO, "QSTN")
+            return await asyncio.wait_for(fut, timeout)
+        except asyncio.TimeoutError:
+            _LOG.info("[%s] Receiver did not answer NRIQSTN (not supported?)", self.id)
+            return None
+        finally:
+            if fut in self._nri_waiters:
+                self._nri_waiters.remove(fut)
+
+    def _on_receiver_info(self, cmd: str, value: str):
+        """Handle NRI (receiver information XML)."""
+        info = names.parse_nri(value)
+        if info is None:
+            return
+        _LOG.info("[%s] Receiver info: %s (%s), %d inputs", self.id, info.model, info.year, len(info.inputs))
+        self._nri = info
+        for fut in self._nri_waiters:
+            if not fut.done():
+                fut.set_result(info)
+        old = (self.inputs.entries, self.modes.entries)
+        self._build_name_tables()
+        if (self.inputs.entries, self.modes.entries) != old:
+            self.events.emit(Events.LISTS_CHANGED, self.id)
+            self.events.emit(Events.UPDATE, self.id, {"source": self._source, "sound_mode": self._listening_mode})
 
     @property
     def media_title(self) -> str:
@@ -269,6 +366,9 @@ class OnkyoDevice:
                         was_connected = True
                         self.events.emit(Events.CONNECTED, self.id)
                         await self.update()
+                        if self._needs_receiver_info and self._nri is None:
+                            await asyncio.sleep(0.1)
+                            await self._eiscp.send_command(CMD_RECEIVER_INFO, "QSTN")
                         continue
 
                     if attempt == 0:
@@ -369,29 +469,17 @@ class OnkyoDevice:
 
     def _on_input_update(self, cmd: str, value: str):
         """Handle input source update."""
-        value_upper = value.upper()
-        source_name = INPUT_SOURCES.get(value_upper)
-        
-        if source_name:
-            self._source = source_name
-        else:
-            self._source = f"INPUT {value}"
-            _LOG.info("[%s] Unknown input code: %s", self.id, value)
-        
+        self._source_code = value.strip().upper()
+        self._source = self.inputs.name_for(self._source_code)
+
         _LOG.debug("[%s] Source: %s", self.id, self._source)
         self.events.emit(Events.UPDATE, self.id, {"source": self._source})
 
     def _on_listening_mode_update(self, cmd: str, value: str):
         """Handle listening mode update."""
-        value_upper = value.upper()
-        mode_name = LISTENING_MODES.get(value_upper)
-        
-        if mode_name:
-            self._listening_mode = mode_name
-        else:
-            self._listening_mode = f"MODE {value}"
-            _LOG.info("[%s] Unknown listening mode: %s", self.id, value)
-        
+        self._mode_code = value.strip().upper()
+        self._listening_mode = self.modes.name_for(self._mode_code)
+
         _LOG.debug("[%s] Listening Mode: %s", self.id, self._listening_mode)
         self.events.emit(Events.UPDATE, self.id, {"sound_mode": self._listening_mode})
 
@@ -494,39 +582,21 @@ class OnkyoDevice:
         """Toggle mute."""
         await self._eiscp.send_command(CMD_MUTE, "TG")
 
-    async def select_source(self, source: str):
-        """Select input source."""
-        source_code = SOURCE_TO_CODE.get(source)
-        
-        if not source_code:
-            # Case-insensitive lookup
-            source_upper = source.upper()
-            for name, code in SOURCE_TO_CODE.items():
-                if name.upper() == source_upper:
-                    source_code = code
-                    break
-        
+    async def select_source(self, source: str) -> bool:
+        """Select input source by display name, old/canonical name or code."""
+        source_code = self.inputs.code_for(source)
         if source_code:
-            await self._eiscp.send_command(CMD_INPUT, source_code)
-        else:
-            _LOG.warning("[%s] Unknown source: %s", self.id, source)
+            return await self._eiscp.send_command(CMD_INPUT, source_code)
+        _LOG.warning("[%s] Unknown source: %s", self.id, source)
+        return False
 
-    async def select_sound_mode(self, mode: str):
-        """Select listening/sound mode."""
-        mode_code = LISTENING_MODE_TO_CODE.get(mode)
-        
-        if not mode_code:
-            # Case-insensitive lookup
-            mode_upper = mode.upper()
-            for name, code in LISTENING_MODE_TO_CODE.items():
-                if name.upper() == mode_upper:
-                    mode_code = code
-                    break
-        
+    async def select_sound_mode(self, mode: str) -> bool:
+        """Select listening mode by display name, old/canonical name or code."""
+        mode_code = self.modes.code_for(mode)
         if mode_code:
-            await self._eiscp.send_command(CMD_LISTENING_MODE, mode_code)
-        else:
-            _LOG.warning("[%s] Unknown sound mode: %s", self.id, mode)
+            return await self._eiscp.send_command(CMD_LISTENING_MODE, mode_code)
+        _LOG.warning("[%s] Unknown sound mode: %s", self.id, mode)
+        return False
 
     # Playback controls
     async def play(self):
@@ -590,3 +660,31 @@ class OnkyoDevice:
     async def send_raw_command(self, command: str, value: str):
         """Send a raw eISCP command."""
         await self._eiscp.send_command(command, value)
+
+
+async def fetch_receiver_info(address: str, timeout: float = NRI_TIMEOUT) -> ReceiverInfo | None:
+    """
+    Open a short-lived connection and ask the receiver for NRI (used by setup).
+
+    :return: parsed info, or None if the receiver is unreachable or doesn't support NRI
+    """
+    conn = eiscp.OnkyoEISCP(address, eiscp.EISCP_PORT)
+    loop = asyncio.get_running_loop()
+    fut = loop.create_future()
+
+    def _cb(cmd: str, value: str):
+        info = names.parse_nri(value)
+        if info is not None and not fut.done():
+            fut.set_result(info)
+
+    conn.register_callback(CMD_RECEIVER_INFO, _cb)
+    if not await conn.connect():
+        return None
+    try:
+        await conn.send_command(CMD_RECEIVER_INFO, "QSTN")
+        return await asyncio.wait_for(fut, timeout)
+    except asyncio.TimeoutError:
+        _LOG.info("Receiver %s did not answer NRIQSTN", address)
+        return None
+    finally:
+        await conn.disconnect()
