@@ -474,6 +474,37 @@ async def _stop_remote_roon() -> None:
         await roon.stop()
 
 
+# =============================================================================
+# Learn mode (setup)
+# =============================================================================
+
+
+async def _learn_start(device_id: str) -> bool:
+    """Start recording codes; makes sure the receiver is connected."""
+    receiver = _configured_avrs.get(device_id)
+    if receiver is None:
+        return False
+    await receiver.connect()
+    for _ in range(50):
+        if receiver.connected:
+            break
+        await asyncio.sleep(0.1)
+    receiver.start_learning()
+    if receiver.connected:
+        await receiver.update()  # current input + mode count as learned
+    return receiver.connected
+
+
+def _learn_peek(device_id: str) -> list[tuple[str, str]]:
+    receiver = _configured_avrs.get(device_id)
+    return receiver.learned() if receiver else []
+
+
+def _learn_stop(device_id: str) -> list[tuple[str, str]]:
+    receiver = _configured_avrs.get(device_id)
+    return receiver.stop_learning() if receiver else []
+
+
 def _get_settings() -> integration_settings.IntegrationSettings:
     return _SETTINGS
 
@@ -545,6 +576,7 @@ async def main():
 
     setup_flow.receiver_info_provider = _receiver_info_for_setup
     setup_flow.settings_hooks = (_get_settings, _apply_settings, _CONTAINER)
+    setup_flow.learn_hooks = (_learn_start, _learn_peek, _learn_stop)
 
     # Roon on the Remote (setup option)
     if not _CONTAINER and _SETTINGS.roon_enabled:

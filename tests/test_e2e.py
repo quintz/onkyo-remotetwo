@@ -165,7 +165,7 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
         async with websockets.connect(f"ws://127.0.0.1:{WS_PORT}/ws") as ws:
             r = Remote(ws)
             ver = (await r.req("get_driver_version"))["msg_data"]["version"]["driver"]
-            check(ver == "0.7.1", f"driver version {ver}")
+            check(ver == "0.8.0", f"driver version {ver}")
 
             ev = await r.setup_step("setup_driver", {"reconfigure": False, "setup_data": {}})
             check({"series", "address", "name"} <= set(settings_of(ev)), "fresh setup: driver shows the receiver form")
@@ -230,7 +230,7 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
             # reconfigure - also with an old cached driver.json that still sends the IP page first
             ev = await r.setup_step("setup_driver", {"reconfigure": True, "setup_data": {"series": "TX-NR6xx", "address": "127.0.0.1", "name": "x"}})
             items = [i["id"] for i in settings_of(ev)["action"]["field"]["dropdown"]["items"]]
-            check(items == ["edit:127_0_0_1", "roon", "add", "remove:127_0_0_1"], "reconfigure offers edit/roon/add/remove")
+            check(items == ["edit:127_0_0_1", "learn:127_0_0_1", "roon", "add", "remove:127_0_0_1"], "reconfigure offers edit/learn/roon/add/remove")
             ev = await r.setup_step("set_driver_user_data", {"input_values": {"action": "edit:127_0_0_1"}})
             txt = settings_of(ev)["inputs"]["field"]["textarea"]["value"]
             check("02 = PlayStation" in txt and "25 = AM" not in txt, "edit shows saved lists")
@@ -241,6 +241,44 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
                                    and "AirPlay" in e["msg_data"]["attributes"].get("options", []), label="options updated", since=mark)
             check(e["msg_data"]["attributes"]["current_option"] == "AirPlay", "new name applied live")
             check(await r.command(MP, "volume_up") == 200, "receiver still connected after reconfigure")
+
+            # learn mode: record what the receiver reports (original remote), then name it
+            ev = await r.setup_step("setup_driver", {"reconfigure": True, "setup_data": {}})
+            items = [i["id"] for i in settings_of(ev)["action"]["field"]["dropdown"]["items"]]
+            check("learn:127_0_0_1" in items, "reconfigure offers learn mode")
+            ev = await r.setup_step("set_driver_user_data", {"input_values": {"action": "learn:127_0_0_1"}})
+            check("howto" in settings_of(ev) and "error" not in settings_of(ev), "learn mode started (receiver connected)")
+            await rx.push("LMD11")
+            await asyncio.sleep(0.1)
+            ev = await r.setup_step("set_driver_user_data", {"input_values": {}})
+            check("lmd_11" in settings_of(ev), "first round recorded")
+            ev = await r.setup_step("set_driver_user_data", {"input_values": {"lmd_11": "x", "learn_more": "true"}})
+            check("seen" in settings_of(ev) and "(11)" in settings_of(ev)["seen"]["field"]["label"]["value"]["de"], "continue learning keeps what was recorded")
+            for msg in ("LMD11", "LMD0C", "LMD17", "LMD11", "SLI2D"):
+                await rx.push(msg)
+                await asyncio.sleep(0.1)
+            ev = await r.setup_step("set_driver_user_data", {"input_values": {}})
+            page = settings_of(ev)
+            learned_lmd = sorted(k[4:] for k in page if k.startswith("lmd_"))
+            check({"11", "0C", "17"} <= set(learned_lmd), f"modes switched on the receiver were recorded ({learned_lmd})")
+            check(page["lmd_17"]["field"]["text"]["value"] == "DTS Virtual:X", "learned codes prefilled with known names")
+            check("sli_2D" in page, "inputs recorded too")
+            values = {f"lmd_{c}": "" for c in learned_lmd}
+            values.update({"lmd_11": "Pure Audio", "lmd_17": "Virtual:X", "lmd_0C": "", "sli_2D": "AirPlay 2",
+                           "modes_apply": "replace", "inputs_apply": "merge", "learn_more": "false"})
+            for k in page:
+                if k.startswith("sli_") and k not in values:
+                    values[k] = page[k]["field"]["text"]["value"]
+            mark = len(r.events)
+            ev = await r.setup_step("set_driver_user_data", {"input_values": values})
+            check(ev["state"] == "OK", "learned names saved")
+            e = await r.wait_event(lambda e: e["msg"] == "entity_change" and e["msg_data"]["entity_id"] == SEL_LM
+                                   and "Virtual:X" in e["msg_data"]["attributes"].get("options", []), label="learned modes", since=mark)
+            opts = [o for o in e["msg_data"]["attributes"]["options"] if o != e["msg_data"]["attributes"].get("current_option") or o in ("Pure Audio", "Virtual:X")]
+            check(set(opts) == {"Pure Audio", "Virtual:X"}, f"sound mode dropdown = only learned modes, emptied one hidden ({opts})")
+            st = await r.states()
+            check("AirPlay 2" in st[SEL_IN]["options"] and "PlayStation" in st[SEL_IN]["options"], "learned input merged into input list")
+            check(await r.command(SEL_LM, "select_option", {"option": "Virtual:X"}) == 200 and await rx_is(rx, "LMD", "17"), "learned mode selectable")
 
             # standby / wake
             rx.log.clear()

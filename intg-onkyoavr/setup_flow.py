@@ -36,6 +36,8 @@ receiver_info_provider: Callable[[str], Awaitable[names.ReceiverInfo | None]] = 
 
 # (get_settings, apply_settings coroutine, running_in_container) - set by the driver
 settings_hooks: tuple | None = None
+# (start coroutine(device_id) -> connected, peek(device_id), stop(device_id)) - set by the driver
+learn_hooks: tuple | None = None
 
 # Step 1 data kept until the names form is submitted.
 _pending: dict[str, Any] = {}
@@ -100,6 +102,8 @@ def _action_form():
     items = []
     for dev in config.devices.all():
         items.append({"id": f"edit:{dev.id}", "label": _text(f"Edit names: {dev.name} ({dev.address})", f"Namen bearbeiten: {dev.name} ({dev.address})")})
+        if learn_hooks is not None:
+            items.append({"id": f"learn:{dev.id}", "label": _text(f"Learn listening modes & inputs: {dev.name}", f"Klangmodi & Eingänge anlernen: {dev.name}")})
     items.append({"id": "roon", "label": _text("Roon & standby settings", "Roon- & Standby-Einstellungen")})
     items.append({"id": "add", "label": _text("Add another receiver", "Weiteren Receiver hinzufügen")})
     for dev in config.devices.all():
@@ -416,7 +420,152 @@ async def _save_roon(values: dict[str, Any]):
     return ucapi.SetupComplete()
 
 
+# =============================================================================
+# Learn mode: record what the receiver reports, then name it
+# =============================================================================
+
+
+def _tables_for(device: AvrDevice):
+    modern = True if device.modern is None else device.modern
+    inputs = names.make_inputs(list(device.inputs) or names.default_inputs())
+    modes = names.make_modes(list(device.modes) or names.default_modes(modern), modern)
+    return inputs, modes
+
+
+def _learn_wait_form(device: AvrDevice, connected: bool, learned: list[tuple[str, str]]):
+    global _step
+    _step = "learn_wait"
+    inputs, modes = _tables_for(device)
+    settings: list[dict[str, Any]] = []
+    if not connected:
+        settings.append(_label("error", _text("Error", "Fehler"), _text(
+            "The receiver is not connected. Check that it is on the network, then press Next.",
+            "Der Receiver ist nicht verbunden. Prüfe, ob er im Netzwerk erreichbar ist, und drücke dann Weiter.")))
+    settings.append(_label("howto", _text("Learn mode", "Anlern-Modus"), _text(
+        "Recording is running. Use the **original Onkyo remote** (or the buttons on the receiver) and step through all "
+        "listening modes you use: press e.g. *Movie/TV*, *Music*, *Game*, *Stereo*, *Direct*, *Pure Audio* repeatedly and "
+        "wait a moment after each step. You can also switch inputs. Then press **Next**.\n\n"
+        "Some modes are only offered with a matching signal (e.g. Dolby Atmos only with Atmos content) - "
+        "play something with that format if you want to learn them.",
+        "Die Aufzeichnung läuft. Schalte jetzt mit der **Original-Fernbedienung von Onkyo** (oder am Receiver) durch alle "
+        "Klangmodi, die du nutzt: z. B. *Movie/TV*, *Music*, *Game*, *Stereo*, *Direct*, *Pure Audio* mehrmals drücken und "
+        "nach jedem Schritt kurz warten. Eingänge kannst du auch umschalten. Danach **Weiter** drücken.\n\n"
+        "Manche Modi bietet der Receiver nur bei passendem Signal an (z. B. Dolby Atmos nur bei Atmos-Material) – "
+        "dafür etwas in diesem Format abspielen.")))
+    if learned:
+        seen = ", ".join(
+            (modes.name_for(c) if k == "LMD" else inputs.name_for(c)) + f" ({c})" for k, c in learned
+        )
+        settings.append(_label("seen", _text("Recognized so far", "Bisher erkannt"), _text(seen)))
+    return ucapi.RequestUserInput(_text(f"Learn: {device.name}", f"Anlernen: {device.name}"), settings)
+
+
+def _learn_names_form(device: AvrDevice, learned: list[tuple[str, str]]):
+    global _step
+    _step = "learn_names"
+    inputs, modes = _tables_for(device)
+    settings: list[dict[str, Any]] = []
+    lmd = [c for k, c in learned if k == "LMD"]
+    sli = [c for k, c in learned if k == "SLI"]
+    if not learned:
+        settings.append(_label("none", _text("Nothing recognized", "Nichts erkannt"), _text(
+            "The receiver didn't report any listening mode yet. Is it switched on? Tick \"Continue learning\" and try again.",
+            "Der Receiver hat noch keinen Klangmodus gemeldet. Ist er eingeschaltet? „Weiter anlernen“ anhaken und erneut versuchen.")))
+    else:
+        settings.append(_label("howto", _text("Names", "Namen"), _text(
+            "Enter how each recognized mode/input should be called. **Empty = hide it** in the dropdowns.",
+            "Gib an, wie jeder erkannte Modus/Eingang heißen soll. **Leer = im Dropdown ausblenden.**")))
+    for code in lmd:
+        settings.append({"id": f"lmd_{code}", "label": _text(f"Listening mode {code}", f"Klangmodus {code}"),
+                         "field": {"text": {"value": modes.name_for(code)}}})
+    for code in sli:
+        settings.append({"id": f"sli_{code}", "label": _text(f"Input {code}", f"Eingang {code}"),
+                         "field": {"text": {"value": inputs.name_for(code)}}})
+    if lmd:
+        settings.append({"id": "modes_apply", "label": _text("Listening mode list", "Klangmodus-Liste"), "field": {"dropdown": {
+            "value": "replace",
+            "items": [
+                {"id": "replace", "label": _text("Only the learned modes (removes the others)", "Nur die angelernten Modi (entfernt die übrigen)")},
+                {"id": "merge", "label": _text("Add / rename, keep the others", "Ergänzen / umbenennen, übrige behalten")},
+            ]}}})
+    if sli:
+        settings.append({"id": "inputs_apply", "label": _text("Input list", "Eingangs-Liste"), "field": {"dropdown": {
+            "value": "merge",
+            "items": [
+                {"id": "merge", "label": _text("Add / rename, keep the others", "Ergänzen / umbenennen, übrige behalten")},
+                {"id": "replace", "label": _text("Only the learned inputs", "Nur die angelernten Eingänge")},
+            ]}}})
+    settings.append({"id": "learn_more", "label": _text("Continue learning (back to recording)", "Weiter anlernen (zurück zur Aufzeichnung)"),
+                     "field": {"checkbox": {"value": not learned}}})
+    return ucapi.RequestUserInput(_text(f"Learned: {device.name}", f"Angelernt: {device.name}"), settings)
+
+
+def _merge(current: list[tuple[str, str]], learned: list[tuple[str, str]], mode: str) -> list[tuple[str, str]]:
+    """learned: (code, name) with name "" = hide."""
+    if mode == "replace":
+        return [(c, n) for c, n in learned if n]
+    result = list(current)
+    for code, name in learned:
+        idx = next((i for i, (c, _) in enumerate(result) if c == code), None)
+        if not name:
+            if idx is not None:
+                result.pop(idx)
+        elif idx is None:
+            result.append((code, name))
+        else:
+            result[idx] = (code, name)
+    return result
+
+
+async def _learn_start(device_id: str):
+    device = config.devices.get(device_id) if config.devices else None
+    if device is None or learn_hooks is None:
+        return ucapi.SetupError()
+    start, _, _ = learn_hooks
+    connected = await start(device_id)
+    _pending.clear()
+    _pending["learn_device"] = device_id
+    return _learn_wait_form(device, connected, [])
+
+
+async def _learn_continue(values: dict[str, Any]):
+    device_id = _pending.get("learn_device")
+    device = config.devices.get(device_id) if (config.devices and device_id) else None
+    if device is None or learn_hooks is None:
+        return ucapi.SetupError()
+    start, peek, stop = learn_hooks
+
+    if _step == "learn_wait":
+        return _learn_names_form(device, peek(device_id))
+
+    # names page submitted
+    learned = peek(device_id)
+    if _bool(values.get("learn_more", False)) or not learned:
+        connected = await start(device_id) if not learned else True
+        if learned:
+            return _learn_wait_form(device, connected, learned)
+        return _learn_wait_form(device, connected, [])
+    stop(device_id)
+    _pending.clear()
+
+    inputs, modes = _tables_for(device)
+    lmd = [(c, str(values.get(f"lmd_{c}", modes.name_for(c)) or "").strip()) for k, c in learned if k == "LMD"]
+    sli = [(c, str(values.get(f"sli_{c}", inputs.name_for(c)) or "").strip()) for k, c in learned if k == "SLI"]
+    new_modes = _merge(modes.entries, lmd, str(values.get("modes_apply", "replace"))) if lmd else list(device.modes)
+    new_inputs = _merge(inputs.entries, sli, str(values.get("inputs_apply", "merge"))) if sli else list(device.inputs)
+    updated = AvrDevice(
+        id=device.id, name=device.name, address=device.address, series=device.series, always_on=device.always_on,
+        inputs=new_inputs, modes=new_modes, model=device.model, modern=device.modern,
+    )
+    config.devices.add_or_update(updated)
+    _LOG.info("Learned for %s: %d modes, %d inputs -> %d modes, %d inputs in list",
+              device.id, len(lmd), len(sli), len(new_modes), len(new_inputs))
+    return ucapi.SetupComplete()
+
+
 async def _handle_action(action: str):
+    if action.startswith("learn:"):
+        return await _learn_start(action.split(":", 1)[1])
     if action == "roon":
         return _roon_form()
     if action == "add":
@@ -442,11 +591,15 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
 
     if isinstance(msg, ucapi.AbortDriverSetup):
         _LOG.info("Setup aborted")
+        if learn_hooks is not None and _pending.get("learn_device"):
+            learn_hooks[2](_pending["learn_device"])
         _pending.clear()
         return ucapi.SetupError()
 
     global _step
     if isinstance(msg, ucapi.DriverSetupRequest):
+        if learn_hooks is not None and _pending.get("learn_device"):
+            learn_hooks[2](_pending["learn_device"])
         _pending.clear()
         _step = ""
         data = msg.setup_data or {}
@@ -467,6 +620,8 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
         values = msg.input_values or {}
         if "action" in values:
             return await _handle_action(str(values["action"]))
+        if _step in ("learn_wait", "learn_names"):
+            return await _learn_continue(values)
         if "address" in values:
             return await _start_device(values.get("series", "TX-NR6xx"), values["address"], str(values.get("name", "")).strip())
         if "inputs" in values or "modes" in values:

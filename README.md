@@ -15,6 +15,7 @@ This integration uses the eISCP (Ethernet Integra Serial Control Protocol) to co
 - Sound mode / listening mode selection
 - Dropdown entities for input and listening mode (select entities, 0.5.0+)
 - Own names for inputs and listening modes, hide unused ones (0.5.0+)
+- **Learn mode** (0.8.0+): step through the modes with the original remote, the integration records the codes your receiver really uses
 - Input names are read from the receiver itself (models with network info support, ~2016+)
 - Real-time status updates via eISCP protocol
 - **Roon zone volume control** (0.6.0+): the receiver appears in Roon as *Volume Control* and *Source Control* (volume, mute, power on + input switch, standby), replacing a separate Roon extension. See [Roon zone volume control](#roon-zone-volume-control)
@@ -60,6 +61,7 @@ Build the integration package using GitHub Actions or locally with Docker.
 **Change settings later:** open the integration in the web configurator and run the setup again (*Configure*). A menu offers:
 
 - *Edit names: …* (inputs and listening modes of a receiver)
+- *Learn listening modes & inputs: …* (record them from the receiver, see below)
 - *Roon & standby settings*
 - *Add another receiver* / *Remove: …*
 
@@ -96,6 +98,17 @@ After entering the IP in the setup, the integration asks the receiver for its in
 **Change names later:** run the setup of the integration again. You can then edit the names of a receiver, add another receiver or remove one. Changes apply immediately, without reconnecting.
 
 Activities created with older versions keep working: the old names (e.g. `NETWORK`, `PLII/PLIIx MOVIE`) are still accepted.
+
+### Learn listening modes & inputs (0.8.0+)
+
+Which listening modes a receiver offers (and which codes it uses for them) differs between models and firmware versions. Instead of guessing, let the integration learn them from your receiver:
+
+1. Run the setup again → **Learn listening modes & inputs: <receiver>**
+2. Recording starts. Use the **original Onkyo remote** (or the buttons on the receiver) and step through all modes you use, e.g. press *Movie/TV*, *Music*, *Game*, *Stereo*, *Direct*, *Pure Audio* repeatedly, waiting a moment after each step. You can switch inputs as well. Press **Next**.
+3. Every code the receiver reported gets a name field, prefilled with the known name. Enter your own name, or leave it **empty to hide** the mode.
+4. Choose whether the learned modes **replace** the list (removes modes your receiver doesn't offer) or are **added**. Inputs are added/renamed by default. Tick *Continue learning* to record more.
+
+The dropdowns and the media player use the new lists immediately. Some modes only appear with a matching signal (e.g. Dolby Atmos only with Atmos content); play something in that format to learn them.
 
 ## Supported Commands
 

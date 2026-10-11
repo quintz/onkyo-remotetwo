@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-11
+
+### Added
+- Learn mode (setup → "Learn listening modes & inputs"): while recording, every listening mode / input the receiver reports (e.g. switched with the original remote) is collected. Afterwards each code gets a name field (empty = hide); the learned modes can replace the list (removes modes the receiver doesn't offer) or be merged. Applied live.
+
 ## [0.7.1] - 2026-10-11
 
 ### Fixed

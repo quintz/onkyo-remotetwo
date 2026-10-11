@@ -90,6 +90,8 @@ class OnkyoDevice:
         # Input / listening mode names (see names.py)
         self._nri: ReceiverInfo | None = None
         self._nri_waiters: list[asyncio.Future] = []
+        # Learn mode (setup): codes reported by the receiver, in the order seen
+        self._learned: list[tuple[str, str]] | None = None  # ("SLI"|"LMD", code)
         self.inputs: NameTable = names.make_inputs([])
         self.modes: NameTable = names.make_modes([], True)
         self._build_name_tables()
@@ -222,6 +224,33 @@ class OnkyoDevice:
             self._source = self.inputs.name_for(self._source_code)
         if self._mode_code:
             self._listening_mode = self.modes.name_for(self._mode_code)
+
+    # --- learn mode (setup) ---------------------------------------------------
+
+    def start_learning(self) -> None:
+        """Start recording input / listening mode codes the receiver reports."""
+        self._learned = []
+        # the currently active ones count as learned, too
+        if self._mode_code:
+            self._learned.append(("LMD", self._mode_code))
+        if self._source_code:
+            self._learned.append(("SLI", self._source_code))
+
+    def learned(self) -> list[tuple[str, str]]:
+        """Codes recorded so far."""
+        return list(self._learned or [])
+
+    def stop_learning(self) -> list[tuple[str, str]]:
+        """Stop recording, return the codes."""
+        result, self._learned = list(self._learned or []), None
+        return result
+
+    def _learn(self, kind: str, code: str) -> None:
+        if self._learned is None or not code or code in ("QSTN", "N/A"):
+            return
+        if (kind, code) not in self._learned:
+            self._learned.append((kind, code))
+            _LOG.info("[%s] Learned %s code %s", self.id, kind, code)
 
     def apply_config(self, device_config: AvrDevice) -> None:
         """Use new settings (setup was run again) without reconnecting."""
@@ -476,6 +505,7 @@ class OnkyoDevice:
         """Handle input source update."""
         self._source_code = value.strip().upper()
         self._source = self.inputs.name_for(self._source_code)
+        self._learn("SLI", self._source_code)
 
         _LOG.debug("[%s] Source: %s", self.id, self._source)
         self.events.emit(Events.UPDATE, self.id, {"source": self._source})
@@ -484,6 +514,7 @@ class OnkyoDevice:
         """Handle listening mode update."""
         self._mode_code = value.strip().upper()
         self._listening_mode = self.modes.name_for(self._mode_code)
+        self._learn("LMD", self._mode_code)
 
         _LOG.debug("[%s] Listening Mode: %s", self.id, self._listening_mode)
         self.events.emit(Events.UPDATE, self.id, {"sound_mode": self._listening_mode})
