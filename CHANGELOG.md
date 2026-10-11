@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-11
+
+### Fixed
+- The Roon & standby settings could not be reached: `driver.json` had a fixed first setup page (series / IP / name), which the Remote also shows when reconfiguring, so the setup always jumped to the names form and the menu never appeared. The first page is now an info page only (like the official Denon integration), all forms come from the driver.
+- Reconfigure always shows the menu (edit names, Roon & standby, add, remove), even if an older cached `driver.json` still sends the IP page.
+
+### Changed
+- A first-time setup ends with the optional Roon page (Roon off by default, can be skipped).
+- Setup start waits 1 s before answering (web configurator workaround, as in the Denon integration).
+
 ## [0.7.0] - 2026-10-11
 
 ### Added

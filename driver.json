@@ -1,6 +1,6 @@
 {
   "driver_id": "onkyoavr",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "min_core_api": "0.20.0",
   "name": {
     "en": "Onkyo AVR"
@@ -11,51 +11,22 @@
   },
   "setup_data_schema": {
     "title": {
-      "en": "Add Onkyo Receiver",
-      "de": "Onkyo Receiver hinzufügen"
+      "en": "Onkyo AVR",
+      "de": "Onkyo AVR"
     },
     "settings": [
       {
-        "id": "series",
+        "id": "info",
         "label": {
-          "en": "Receiver Series",
-          "de": "Receiver Serie"
+          "en": "Onkyo AVR",
+          "de": "Onkyo AVR"
         },
         "field": {
-          "dropdown": {
-            "value": "TX-NR6xx",
-            "items": [
-              {"id": "TX-NR5xx", "label": {"en": "TX-NR5xx (z.B. NR555, NR575, NR579)", "de": "TX-NR5xx (z.B. NR555, NR575, NR579)"}},
-              {"id": "TX-NR6xx", "label": {"en": "TX-NR6xx (z.B. NR616, NR656, NR676, NR696)", "de": "TX-NR6xx (z.B. NR616, NR656, NR676, NR696)"}},
-              {"id": "TX-NR7xx", "label": {"en": "TX-NR7xx (z.B. NR717, NR747, NR777)", "de": "TX-NR7xx (z.B. NR717, NR747, NR777)"}},
-              {"id": "TX-RZxxx", "label": {"en": "TX-RZxxx (z.B. RZ610, RZ720, RZ810)", "de": "TX-RZxxx (z.B. RZ610, RZ720, RZ810)"}},
-              {"id": "TX-NR8xx-9xx", "label": {"en": "TX-NR8xx/9xx (z.B. NR818, NR929)", "de": "TX-NR8xx/9xx (z.B. NR818, NR929)"}},
-              {"id": "GENERIC", "label": {"en": "Other / Unknown", "de": "Andere / Unbekannt"}}
-            ]
-          }
-        }
-      },
-      {
-        "id": "address",
-        "label": {
-          "en": "IP Address",
-          "de": "IP-Adresse"
-        },
-        "field": {
-          "text": {
-            "value": ""
-          }
-        }
-      },
-      {
-        "id": "name",
-        "label": {
-          "en": "Name",
-          "de": "Name"
-        },
-        "field": {
-          "text": {
-            "value": "Onkyo AVR"
+          "label": {
+            "value": {
+              "en": "Next you enter the IP address of your receiver and adjust the names of inputs and listening modes. Optionally you can set up Roon control.\n\nRun the setup again later to edit names, change the Roon & standby settings, or add / remove receivers.",
+              "de": "Als Nächstes gibst du die IP-Adresse deines Receivers ein und passt die Namen der Eingänge und Klangmodi an. Optional kannst du die Roon-Steuerung einrichten.\n\nWenn du das Setup später erneut startest, kannst du Namen bearbeiten, die Roon- & Standby-Einstellungen ändern oder Receiver hinzufügen / entfernen."
+            }
           }
         }
       }

@@ -165,9 +165,11 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
         async with websockets.connect(f"ws://127.0.0.1:{WS_PORT}/ws") as ws:
             r = Remote(ws)
             ver = (await r.req("get_driver_version"))["msg_data"]["version"]["driver"]
-            check(ver == "0.7.0", f"driver version {ver}")
+            check(ver == "0.7.1", f"driver version {ver}")
 
-            ev = await r.setup_step("setup_driver", {"reconfigure": False, "setup_data": {"series": "TX-NR6xx", "address": "http://127.0.0.1/", "name": "Wohnzimmer"}})
+            ev = await r.setup_step("setup_driver", {"reconfigure": False, "setup_data": {}})
+            check({"series", "address", "name"} <= set(settings_of(ev)), "fresh setup: driver shows the receiver form")
+            ev = await r.setup_step("set_driver_user_data", {"input_values": {"series": "TX-NR6xx", "address": "http://127.0.0.1/", "name": "Wohnzimmer"}})
             s = settings_of(ev)
             inputs_text = s["inputs"]["field"]["textarea"]["value"]
             check("10 = Apple TV" in inputs_text and "02 = PS5" in inputs_text, "names form prefilled with receiver names (NRI)")
@@ -181,7 +183,13 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
             new_inputs = inputs_text.replace("02 = PS5", "02 = PlayStation").replace("25 = AM\n", "")
             new_modes = "80 = Kino\n82 = DTS Neural:X\n00 = Stereo\nPURE DIRECT\n03\n05"
             ev = await r.setup_step("set_driver_user_data", {"input_values": {"inputs": new_inputs, "modes": new_modes, "naming": "modern"}})
-            check(ev["state"] == "OK", "setup completed")
+            roon_page = settings_of(ev)
+            check("roon_enabled" in roon_page and "optional" in roon_page, "first setup offers the optional Roon page")
+            check(roon_page["roon_enabled"]["field"]["checkbox"]["value"] is False, "Roon is off by default")
+            ev = await r.setup_step("set_driver_user_data", {"input_values": {"roon_enabled": "false", "keep_awake": "true", "pin": "",
+                                                                             "roon_source": "", "roon_volume_max": "80", "min_battery": "30",
+                                                                             "roon_zone": "", "roon_core": "", "core_api_url": "http://127.0.0.1"}})
+            check(ev["state"] == "OK", "setup completed (Roon skipped)")
 
             ids = [e["entity_id"] for e in (await r.req("get_available_entities"))["msg_data"]["available_entities"]]
             check(set(ids) == {MP, RM, SEL_IN, SEL_LM}, "4 entities with legacy ID format")
@@ -219,7 +227,8 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
             check("AIRPLAY" in e["msg_data"]["attributes"]["options"], "active hidden input shown in dropdown")
 
             # reconfigure: edit names, applied without reconnect
-            ev = await r.setup_step("setup_driver", {"reconfigure": True, "setup_data": {}})
+            # reconfigure - also with an old cached driver.json that still sends the IP page first
+            ev = await r.setup_step("setup_driver", {"reconfigure": True, "setup_data": {"series": "TX-NR6xx", "address": "127.0.0.1", "name": "x"}})
             items = [i["id"] for i in settings_of(ev)["action"]["field"]["dropdown"]["items"]]
             check(items == ["edit:127_0_0_1", "roon", "add", "remove:127_0_0_1"], "reconfigure offers edit/roon/add/remove")
             ev = await r.setup_step("set_driver_user_data", {"input_values": {"action": "edit:127_0_0_1"}})

@@ -15,6 +15,7 @@ receiver also updates it instead of failing.
 :license: Mozilla Public License Version 2.0, see LICENSE for more details.
 """
 
+import asyncio
 import logging
 from typing import Any, Awaitable, Callable
 
@@ -38,6 +39,9 @@ settings_hooks: tuple | None = None
 
 # Step 1 data kept until the names form is submitted.
 _pending: dict[str, Any] = {}
+# Current page ("device", "names", "roon", "action") - lets us finish pages whose
+# submitted values carry no input fields (e.g. the info-only page in the container).
+_step = ""
 
 _HELP = {
     "en": (
@@ -250,8 +254,12 @@ def _save_names(values: dict[str, Any]):
     if config.devices is None:
         _LOG.error("config.devices not initialized")
         return ucapi.SetupError()
+    is_new = not config.devices.contains(device.id)
     config.devices.add_or_update(device)
     _LOG.info("Saved %s: %d inputs, %d listening modes", device.id, len(inputs), len(modes))
+    if is_new and settings_hooks is not None:
+        # first setup: offer Roon right away (optional, can be skipped)
+        return _roon_form(first_setup=True)
     return ucapi.SetupComplete()
 
 
@@ -260,8 +268,10 @@ def _save_names(values: dict[str, Any]):
 # =============================================================================
 
 
-def _roon_form(error: str | None = None, values: dict[str, Any] | None = None):
+def _roon_form(error: str | None = None, values: dict[str, Any] | None = None, first_setup: bool = False):
     """Roon on the Remote + keep awake while Roon plays."""
+    global _step
+    _step = "roon"
     get_settings, _, in_container = settings_hooks
     s = get_settings()
     v = values or {}
@@ -281,6 +291,19 @@ def _roon_form(error: str | None = None, values: dict[str, Any] | None = None):
         )
         return ucapi.RequestUserInput(_text("Roon & standby", "Roon & Standby"), settings)
 
+    if first_setup:
+        settings.append(
+            _label(
+                "optional",
+                _text("Optional"),
+                _text(
+                    "The receiver is set up. If you use Roon, you can enable Roon control here - or just continue "
+                    "without it. You find this page later in the setup under \"Roon & standby settings\".",
+                    "Der Receiver ist eingerichtet. Wenn du Roon nutzt, kannst du hier die Roon-Steuerung aktivieren – "
+                    "oder einfach ohne weiter. Diese Seite findest du später im Setup unter „Roon- & Standby-Einstellungen“.",
+                ),
+            )
+        )
     settings.append(
         _label(
             "info",
@@ -356,6 +379,8 @@ def _bool(value: Any) -> bool:
 
 
 async def _save_roon(values: dict[str, Any]):
+    global _step
+    _step = ""
     get_settings, apply_settings, in_container = settings_hooks
     if in_container:
         return ucapi.SetupComplete()
@@ -420,13 +445,22 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
         _pending.clear()
         return ucapi.SetupError()
 
+    global _step
     if isinstance(msg, ucapi.DriverSetupRequest):
         _pending.clear()
+        _step = ""
         data = msg.setup_data or {}
-        if str(data.get("address", "")).strip():
-            return await _start_device(data.get("series", "TX-NR6xx"), data["address"], str(data.get("name", "")).strip())
-        if msg.reconfigure and config.devices is not None and any(True for _ in config.devices.all()):
+        _LOG.info("Setup start (reconfigure=%s, setup_data=%s)", msg.reconfigure, sorted(data))
+        # Workaround (as in the official Denon integration): the web configurator
+        # sometimes misses a response sent immediately.
+        await asyncio.sleep(1)
+        has_devices = config.devices is not None and any(True for _ in config.devices.all())
+        if msg.reconfigure and has_devices:
+            # Always the menu - also if an old driver.json still sends the IP page first.
             return _action_form()
+        if str(data.get("address", "")).strip():
+            # driver.json up to 0.7.0 had series/address/name on the first page
+            return await _start_device(data.get("series", "TX-NR6xx"), data["address"], str(data.get("name", "")).strip())
         return _device_form()
 
     if isinstance(msg, ucapi.UserDataResponse):
@@ -437,7 +471,7 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
             return await _start_device(values.get("series", "TX-NR6xx"), values["address"], str(values.get("name", "")).strip())
         if "inputs" in values or "modes" in values:
             return _save_names(values)
-        if "roon_enabled" in values or "container" in values:
+        if "roon_enabled" in values or _step == "roon":
             return await _save_roon(values)
 
     _LOG.warning("Unexpected setup message: %s", type(msg).__name__)

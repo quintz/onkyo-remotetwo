@@ -53,8 +53,15 @@ Build the integration package using GitHub Actions or locally with Docker.
 
 1. Ensure your Onkyo receiver is powered on and connected to your network
 2. Add the Onkyo AVR integration in Remote Two/3
-3. Enter the IP address of your receiver
-4. Give it a name and complete setup
+3. Enter the IP address of your receiver and give it a name
+4. Check the names of inputs and listening modes (see below)
+5. Optional: enable Roon control (see [Roon zone volume control](#roon-zone-volume-control)), or continue without it
+
+**Change settings later:** open the integration in the web configurator and run the setup again (*Configure*). A menu offers:
+
+- *Edit names: …* (inputs and listening modes of a receiver)
+- *Roon & standby settings*
+- *Add another receiver* / *Remove: …*
 
 If setup doesn't work:
 - Ensure the receiver's Network Control is enabled (set to "Always On")
