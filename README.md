@@ -17,6 +17,9 @@ This integration uses the eISCP (Ethernet Integra Serial Control Protocol) to co
 - Own names for inputs and listening modes, hide unused ones (0.5.0+)
 - Input names are read from the receiver itself (models with network info support, ~2016+)
 - Real-time status updates via eISCP protocol
+- **Roon zone volume control** (0.6.0+): the receiver appears in Roon as *Volume Control* and *Source Control* (volume, mute, power on + input switch, standby), replacing a separate Roon extension. See [Roon zone volume control](#roon-zone-volume-control)
+  - **Integrated in the Remote integration** (0.7.0+): no server needed, optionally keeps the Remote awake while Roon plays
+  - **Standalone Docker container** (0.6.0+): runs on a server (e.g. Proxmox), Roon control independent of the Remote
 
 ## Supported Receivers
 
@@ -31,6 +34,7 @@ This integration should work with most Onkyo receivers that support network cont
 - Onkyo receiver with network connection
 - Network Control enabled on the receiver
 - Same network as Remote Two/3
+- Optional for Roon: a Roon Core in the same network; for the standalone variant a Docker host (e.g. Proxmox LXC/VM)
 
 ## Installation
 
@@ -96,6 +100,34 @@ Activities created with older versions keep working: the old names (e.g. `NETWOR
 - D-Pad Navigation
 - Playback Controls (Play/Pause/Stop/Next/Previous)
 
+## Roon zone volume control
+
+The integration can offer the receiver to **Roon**. In the Roon zone you then get:
+
+| Roon function | What happens on the receiver |
+|---|---|
+| Volume slider, +/- | Master volume in receiver steps (0–80, upper limit configurable) |
+| Mute | Mute on/off/toggle |
+| Source control "convenience switch" (when playback starts) | Power on, switch to the Roon input |
+| Source control "standby" | Power off |
+| Zone status | Shows whether the receiver is on the Roon input, on another input or in standby |
+
+Changes made on the receiver or with the Remote (volume, mute, power, input) show up in Roon immediately. It replaces [roon-extension-onkyo](https://github.com/quintz/roon-extension-onkyo); disable the old extension so there aren't two Onkyo controls.
+
+### Which variant?
+
+| | **Integrated** (on the Remote) | **Standalone Docker**, `MODE=roon` | **Docker**, `MODE=full` |
+|---|---|---|---|
+| Extra server | none | Docker host | Docker host |
+| Roon control available | while the Remote is awake (always in the dock) | always | always |
+| Remote control without the server | yes | yes (own integration on the Remote) | no |
+| Configuration | setup → *Roon & standby settings* | environment variables | environment variables |
+| Keep Remote awake while Roon plays | yes (optional) | not needed | not needed |
+
+- Remote mostly in the dock → **Integrated** is enough.
+- Roon control must work no matter where the Remote is → **Standalone Docker** (`MODE=roon`).
+- Run only one variant with Roon enabled at a time.
+
 ## Roon directly on the Remote (0.7.0+)
 
 Roon control can also run **inside the integration on the Remote**, no extra server needed:
@@ -112,13 +144,9 @@ How it behaves:
 - **If the Remote is already asleep** when you start Roon (e.g. from the phone), Roon can't reach it; volume control appears as soon as the Remote wakes up. If you need Roon control independent of the Remote, use the container below.
 - The Remote's Core API is reached at `http://127.0.0.1` by default. If the setup reports it as not reachable, enter the Remote's IP address in the field *Remote Core API*.
 
-## Roon control & Docker container (0.6.0+)
+## Standalone Docker container (0.6.0+)
 
-The same code can run as a **Docker container** (e.g. on Proxmox) and offer the receiver to **Roon** as *Volume Control* and *Source Control*, a drop-in replacement for [roon-extension-onkyo](https://github.com/quintz/roon-extension-onkyo):
-
-- Volume slider / +/- and mute in the Roon zone (in receiver steps, optionally capped)
-- Source control: Roon turns the receiver on and switches to the Roon input ("convenience switch"), standby turns it off; the zone shows whether the receiver is on the Roon input
-- Status in Roon → Settings → Extensions
+The same code runs as a **standalone Docker container** (e.g. on Proxmox), independent of the Remote. It offers the receiver to Roon with all [Roon zone functions](#roon-zone-volume-control) and shows its status in Roon → Settings → Extensions. The image is multi-arch (amd64/arm64) and is built automatically to `ghcr.io/quintz/onkyo-remotetwo`.
 
 ### Modes
 
@@ -170,6 +198,7 @@ This project is licensed under the Mozilla Public License 2.0 - see [LICENSE](LI
 
 - Structure inspired by the [Denon AVR integration](https://github.com/unfoldedcircle/integration-denonavr) by Unfolded Circle.
 - eISCP protocol implementation based on Onkyo documentation and https://github.com/miracle2k/onkyo-eiscp
+- Roon extension protocol based on [node-roon-api](https://github.com/RoonLabs/node-roon-api) by Roon Labs; behaviour modelled after [roon-extension-onkyo](https://github.com/quintz/roon-extension-onkyo)
 
 ## Author
 
