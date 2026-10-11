@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2026-10-09
 
 ### Added
+- ONKYO logo as integration icon (`custom:onkyo.png`, installed automatically with the archive) and in the README, with trademark notice (README, NOTICE).
 - Select entities (dropdowns) for input source and listening mode.
 - Own names for inputs and listening modes, unused ones can be hidden: editable "Code = Name" lists in the setup. Media player, dropdowns and stored activities use the same names.
 - Input names and model are read from the receiver (`NRIQSTN`, models ~2016+). For configurations from 0.4.x without own names this happens automatically on connect.

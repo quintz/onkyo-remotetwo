@@ -1,0 +1,14 @@
+Onkyo AVR integration for Remote Two/3
+Copyright (c) 2025-2026 Quirin
+
+The source code is licensed under the Mozilla Public License 2.0 (see LICENSE).
+
+Third-party trademarks
+----------------------
+ONKYO(R) and the ONKYO logo are registered trademarks of Onkyo and/or their
+respective owner. They are not covered by the Mozilla Public License 2.0.
+
+The files assets/onkyo.png (integration icon) and assets/onkyo-logo.png
+(README) contain the ONKYO logo. They are used only to identify the
+supported receivers. This project is not affiliated with, endorsed or
+sponsored by Onkyo.

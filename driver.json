@@ -5,7 +5,7 @@
   "name": {
     "en": "Onkyo AVR"
   },
-  "icon": "uc:tv-music",
+  "icon": "custom:onkyo.png",
   "description": {
     "en": "Control Onkyo AV Receivers"
   },

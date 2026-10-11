@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/onkyo-logo.png" alt="ONKYO" width="300"></p>
+
 # Onkyo AVR integration for Remote Two/3
 
 Control your Onkyo AV Receivers with the Unfolded Circle Remote Two/3.
@@ -94,9 +96,15 @@ Activities created with older versions keep working: the old names (e.g. `NETWOR
 - D-Pad Navigation
 - Playback Controls (Play/Pause/Stop/Next/Previous)
 
+## Trademark notice
+
+ONKYO® and the ONKYO logo are registered trademarks of Onkyo and/or their respective owner. The logo is used only to identify the supported receivers (as the integration icon in the Remote and in this README). This project is an independent community project and is not affiliated with, endorsed or sponsored by Onkyo. The logo files in `assets/` are **not** covered by the project license.
+
+*ONKYO® und das ONKYO-Logo sind eingetragene Marken von Onkyo bzw. des jeweiligen Rechteinhabers. Das Logo dient nur dazu, die unterstützten Receiver zu kennzeichnen. Dieses Projekt ist ein unabhängiges Community-Projekt und steht in keiner Verbindung zu Onkyo. Die Logo-Dateien in `assets/` fallen **nicht** unter die Projektlizenz.*
+
 ## License
 
-This project is licensed under the Mozilla Public License 2.0 - see [LICENSE](LICENSE) file for details.
+This project is licensed under the Mozilla Public License 2.0 - see [LICENSE](LICENSE) file for details. This does not apply to the ONKYO logo, see [Trademark notice](#trademark-notice) and [NOTICE](NOTICE).
 
 ## Credits
 

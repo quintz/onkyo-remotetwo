@@ -66,6 +66,9 @@ jobs:
           
           # Copy driver metadata
           cp driver.json ${PKG_DIR}/
+
+          # Driver icon (driver.json: "icon": "custom:onkyo.png") must be in the archive root
+          cp assets/onkyo.png ${PKG_DIR}/
           
           # Create tarball with correct structure
           tar czvf ${PKG_DIR}.tar.gz -C ${PKG_DIR} .
