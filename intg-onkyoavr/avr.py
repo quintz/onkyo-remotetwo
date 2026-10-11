@@ -169,6 +169,11 @@ class OnkyoDevice:
         return self._source
 
     @property
+    def source_code(self) -> str:
+        """Current input selector code (SLI), e.g. "11"."""
+        return self._source_code
+
+    @property
     def source_list(self) -> list:
         """Return list of available sources (display names)."""
         return self.inputs.names

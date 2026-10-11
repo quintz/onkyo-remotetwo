@@ -1,0 +1,26 @@
+# Onkyo AVR + Roon on Proxmox (Docker in an LXC with nesting=1, or a VM)
+#
+#   docker compose up -d
+#   then: Roon -> Settings -> Extensions -> "Onkyo AVR (Remote Two integration)" -> Enable
+#   and in the zone: Device Setup -> Volume Control / Source Control -> choose the Onkyo
+
+services:
+  onkyo:
+    image: ghcr.io/quintz/onkyo-remotetwo:latest
+    # build: .            # instead of image: to build locally
+    container_name: onkyo-remotetwo
+    network_mode: host    # required (Roon discovery, mDNS)
+    restart: unless-stopped
+    environment:
+      MODE: roon                  # roon = only Roon (Remote keeps its own integration)
+                                  # full = Remote integration + Roon from this container
+      ONKYO_HOST: 192.168.0.54    # receiver IP (MODE=roon)
+      ONKYO_NAME: Onkyo           # name in Roon
+      ROON_SOURCE: "BD/DVD"       # input for Roon: code (10) or name (BD/DVD, STRM BOX, NET, ...)
+      # ROON_VOLUME_MAX: 60       # limit Roon's volume slider (receiver steps, max 80)
+      # ROON_VOLUME_STEP: 1
+      # ROON_CORE: 192.168.0.10   # only if auto discovery doesn't find the core
+      LOG_LEVEL: INFO
+      TZ: Europe/Berlin
+    volumes:
+      - ./data:/data              # Roon token (and UC config in MODE=full)

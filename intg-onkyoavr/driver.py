@@ -25,6 +25,9 @@ import media_player
 import remote
 import select_entity
 import setup_flow
+import settings as integration_settings
+from power import AwakeKeeper, CoreApi
+from roon_bridge import RoonManager, RoonSettings
 import ucapi
 from config import AvrDevice, avr_from_entity_id, create_entity_id
 from const import __version__, Events, States
@@ -40,6 +43,18 @@ api = ucapi.IntegrationAPI(_LOOP)
 # Global variables
 _configured_avrs: dict[str, avr.OnkyoDevice] = {}
 _REMOTE_IN_STANDBY = False
+
+# Roon can run in two places:
+# - container (ROON_ENABLED=1 env, see container.py): receivers stay connected
+#   all the time (_KEEP_CONNECTED), the container never sleeps.
+# - on the Remote (setup "Roon & Standby"): receivers stay connected while the
+#   Remote is awake (also without subscribed entities), disconnect on standby
+#   as before; optionally the Remote is kept awake while Roon plays.
+_ROON: RoonManager | None = None
+_KEEP_CONNECTED = False
+_CONTAINER = False
+_AWAKE: AwakeKeeper | None = None
+_SETTINGS = integration_settings.IntegrationSettings()
 
 
 # =============================================================================
@@ -88,6 +103,8 @@ async def on_r2_connect_cmd() -> None:
 async def on_r2_disconnect_cmd():
     """Handle Remote disconnect event."""
     _LOG.info("Remote disconnect command")
+    if _KEEP_CONNECTED or _ROON is not None:
+        return  # Roon still needs the receiver
     for receiver in _configured_avrs.values():
         _LOOP.create_task(receiver.disconnect())
 
@@ -98,6 +115,8 @@ async def on_r2_enter_standby() -> None:
     global _REMOTE_IN_STANDBY
     _REMOTE_IN_STANDBY = True
     _LOG.info("Entering standby")
+    if _KEEP_CONNECTED:
+        return
 
     for configured in _configured_avrs.values():
         await configured.disconnect()
@@ -109,6 +128,11 @@ async def on_r2_exit_standby() -> None:
     global _REMOTE_IN_STANDBY
     _REMOTE_IN_STANDBY = False
     _LOG.info("Exiting standby")
+    if _KEEP_CONNECTED:
+        return  # our connections didn't sleep
+    if _ROON is not None:
+        # the Roon websocket didn't survive the sleep either
+        _LOOP.create_task(_ROON.ext.reconnect())
 
     # Never trust the old TCP connection after a sleep - it may be half-open.
     # reconnect() replaces it; concurrent connect() calls from CONNECT /
@@ -158,10 +182,13 @@ async def on_unsubscribe_entities(entity_ids: list[str]) -> None:
         if avr_id in avrs_to_remove:
             avrs_to_remove.remove(avr_id)
 
+    if _KEEP_CONNECTED or _ROON is not None:
+        return  # Roon still needs the receiver
     for avr_id in avrs_to_remove:
         if avr_id in _configured_avrs:
+            # Only disconnect - the event handlers must stay, a later
+            # SUBSCRIBE_ENTITIES just reconnects this receiver.
             await _configured_avrs[avr_id].disconnect()
-            _configured_avrs[avr_id].events.remove_all_listeners()
 
 
 # =============================================================================
@@ -323,8 +350,10 @@ def _configure_new_avr(device: AvrDevice, connect: bool = True) -> None:
         receiver.events.on(Events.LISTS_CHANGED, on_avr_lists_changed)
 
         _configured_avrs[device.id] = receiver
+        if _ROON is not None:
+            _LOOP.create_task(_ROON.add_receiver(receiver, device.name))
 
-    if connect:
+    if connect or _KEEP_CONNECTED or _ROON is not None:
         _LOOP.create_task(receiver.connect())
 
     _register_available_entities(device, receiver)
@@ -376,6 +405,8 @@ def on_device_removed(device: AvrDevice | None) -> None:
         _LOG.info("Configuration cleared")
         for configured in _configured_avrs.values():
             _LOOP.create_task(_async_remove(configured))
+            if _ROON is not None:
+                _LOOP.create_task(_ROON.remove_receiver(configured.id))
         _configured_avrs.clear()
         api.configured_entities.clear()
         api.available_entities.clear()
@@ -383,6 +414,8 @@ def on_device_removed(device: AvrDevice | None) -> None:
         if device.id in _configured_avrs:
             _LOG.info("Device removed: %s", device.id)
             configured = _configured_avrs.pop(device.id)
+            if _ROON is not None:
+                _LOOP.create_task(_ROON.remove_receiver(device.id))
             _LOOP.create_task(_async_remove(configured))
 
             # Remove entities
@@ -406,6 +439,55 @@ async def _receiver_info_for_setup(address: str):
             if info is not None:
                 return info
     return await avr.fetch_receiver_info(address)
+
+
+# =============================================================================
+# Roon on the Remote + keep awake
+# =============================================================================
+
+
+async def _start_remote_roon() -> None:
+    """Start Roon inside the driver on the Remote (setup option)."""
+    global _ROON, _AWAKE
+    s = _SETTINGS
+    _ROON = RoonManager(integration_settings.roon_settings(s), os.path.join(api.config_dir_path, "roon.json"))
+    if s.keep_awake and s.core_api_key:
+        _AWAKE = AwakeKeeper(CoreApi(s.core_api_url, s.core_api_key), s.min_battery)
+        _ROON.track_playback(_AWAKE.set_playing)
+    for device_id, receiver in _configured_avrs.items():
+        device = config.devices.get(device_id) if config.devices else None
+        await _ROON.add_receiver(receiver, device.name if device else "Onkyo")
+        await receiver.connect()
+    _ROON.start()
+    _LOG.info("Roon on the Remote enabled (keep awake: %s)", "on" if _AWAKE else "off")
+
+
+async def _stop_remote_roon() -> None:
+    global _ROON, _AWAKE
+    if _AWAKE is not None:
+        await _AWAKE.stop()
+        _AWAKE = None
+    if _ROON is not None:
+        roon, _ROON = _ROON, None
+        for device_id in list(_configured_avrs):
+            await roon.remove_receiver(device_id)
+        await roon.stop()
+
+
+def _get_settings() -> integration_settings.IntegrationSettings:
+    return _SETTINGS
+
+
+async def _apply_settings(new: integration_settings.IntegrationSettings) -> None:
+    """Called by the setup after "Roon & Standby" was saved."""
+    global _SETTINGS
+    integration_settings.save(api.config_dir_path, new)
+    _SETTINGS = new
+    if _CONTAINER:
+        return  # the container is configured with environment variables
+    await _stop_remote_roon()
+    if new.roon_enabled:
+        await _start_remote_roon()
 
 
 async def _async_remove(receiver: avr.OnkyoDevice) -> None:
@@ -441,6 +523,18 @@ async def main():
               os.getenv("UC_INTEGRATION_LISTEN_IP", "default"),
               os.getenv("UC_INTEGRATION_HTTP_PORT", "default"))
 
+    # Roon in the container (environment variables)
+    global _ROON, _KEEP_CONNECTED, _CONTAINER, _SETTINGS
+    for name in ("roon", "roon_bridge", "power", "settings"):
+        logging.getLogger(name).setLevel(level)
+    _SETTINGS = integration_settings.load(api.config_dir_path)
+    roon_settings = RoonSettings.from_env()
+    if roon_settings.enabled:
+        _ROON = RoonManager(roon_settings, os.path.join(api.config_dir_path, "roon.json"))
+        _KEEP_CONNECTED = True
+        _CONTAINER = True
+        _ROON.start()
+
     # Initialize configuration
     config.devices = config.Devices(api.config_dir_path, on_device_added, on_device_removed)
     for device in config.devices.all():
@@ -450,6 +544,11 @@ async def main():
     _LOOP.create_task(receiver_status_poller())
 
     setup_flow.receiver_info_provider = _receiver_info_for_setup
+    setup_flow.settings_hooks = (_get_settings, _apply_settings, _CONTAINER)
+
+    # Roon on the Remote (setup option)
+    if not _CONTAINER and _SETTINGS.roon_enabled:
+        await _start_remote_roon()
 
     # Initialize API
     await api.init("driver.json", setup_flow.driver_setup_handler)

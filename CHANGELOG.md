@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-11
+
+### Added
+- Roon control directly in the integration on the Remote (setup → "Roon & standby settings"), no server needed.
+- Keep the Remote awake while Roon plays in the Onkyo zone: temporary, renewed standby inhibitor via the Remote's Core API (API key created once from the web configurator PIN; PIN not stored), with a minimum battery level. In the dock the Remote doesn't sleep anyway.
+- Roon extension subscribes to transport zones (optional service) to detect playback; optional zone name.
+- After waking up, the Roon connection is renewed like the receiver connection.
+- Tests: mock Core API, Roon zones, driver on the Remote (`tests/test_remote_roon.py`).
+
+## [0.6.0] - 2026-10-11
+
+### Added
+- Roon volume control + source control (replaces roon-extension-onkyo): own asyncio implementation of the Roon extension protocol (SOOD discovery, registration with stored token, ping/status/volume/source services), no Node.js needed.
+- Docker container (`Dockerfile`, `docker-compose.yml`, `intg-onkyoavr/container.py`) with `MODE=roon` (Roon only, Remote keeps its own integration) and `MODE=full` (Remote integration + Roon, receivers stay connected).
+- GitHub Actions workflow building the multi-arch image (amd64/arm64) to GHCR.
+- Mock Roon Core and Roon tests (`tests/mock_roon_core.py`, `tests/test_roon.py`), run in CI.
+
+### Fixed
+- After the Remote removed all entities of a receiver, its event handlers were removed for good, so later updates were never sent again (re-adding the entities only reconnected).
+
 ## [0.5.0] - 2026-10-09
 
 ### Added

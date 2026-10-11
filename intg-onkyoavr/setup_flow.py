@@ -21,7 +21,9 @@ from typing import Any, Awaitable, Callable
 import avr
 import config
 import names
+import settings as integration_settings
 import ucapi
+from power import CoreApi, CoreApiError
 from config import AvrDevice
 from const import RECEIVER_SERIES
 
@@ -30,6 +32,9 @@ _LOG = logging.getLogger(__name__)
 # Provides receiver info for an address. The driver replaces this so a running
 # connection is reused instead of opening a second one.
 receiver_info_provider: Callable[[str], Awaitable[names.ReceiverInfo | None]] = avr.fetch_receiver_info
+
+# (get_settings, apply_settings coroutine, running_in_container) - set by the driver
+settings_hooks: tuple | None = None
 
 # Step 1 data kept until the names form is submitted.
 _pending: dict[str, Any] = {}
@@ -91,6 +96,7 @@ def _action_form():
     items = []
     for dev in config.devices.all():
         items.append({"id": f"edit:{dev.id}", "label": _text(f"Edit names: {dev.name} ({dev.address})", f"Namen bearbeiten: {dev.name} ({dev.address})")})
+    items.append({"id": "roon", "label": _text("Roon & standby settings", "Roon- & Standby-Einstellungen")})
     items.append({"id": "add", "label": _text("Add another receiver", "Weiteren Receiver hinzufügen")})
     for dev in config.devices.all():
         items.append({"id": f"remove:{dev.id}", "label": _text(f"Remove: {dev.name} ({dev.address})", f"Entfernen: {dev.name} ({dev.address})")})
@@ -249,7 +255,145 @@ def _save_names(values: dict[str, Any]):
     return ucapi.SetupComplete()
 
 
+# =============================================================================
+# Roon & standby settings
+# =============================================================================
+
+
+def _roon_form(error: str | None = None, values: dict[str, Any] | None = None):
+    """Roon on the Remote + keep awake while Roon plays."""
+    get_settings, _, in_container = settings_hooks
+    s = get_settings()
+    v = values or {}
+    settings: list[dict[str, Any]] = []
+    if error:
+        settings.append(_label("error", _text("Error", "Fehler"), _text(error)))
+    if in_container:
+        settings.append(
+            _label(
+                "container",
+                _text("Container"),
+                _text(
+                    "This integration runs in a container: Roon is configured with environment variables (ROON_*).",
+                    "Die Integration läuft im Container: Roon wird dort über Umgebungsvariablen (ROON_*) eingestellt.",
+                ),
+            )
+        )
+        return ucapi.RequestUserInput(_text("Roon & standby", "Roon & Standby"), settings)
+
+    settings.append(
+        _label(
+            "info",
+            _text("Roon"),
+            _text(
+                "Offers the receiver to Roon as volume and source control (enable the extension in Roon → Settings → "
+                "Extensions). Works while the Remote is awake - in the dock it doesn't sleep. "
+                "Optionally the Remote is kept awake while Roon plays.",
+                "Stellt den Receiver in Roon als Lautstärke- und Quellensteuerung bereit (Extension in Roon → Einstellungen → "
+                "Erweiterungen aktivieren). Funktioniert, solange die Remote wach ist – im Dock schläft sie nicht. "
+                "Optional bleibt die Remote wach, solange Roon spielt.",
+            ),
+        )
+    )
+    settings.append({"id": "roon_enabled", "label": _text("Enable Roon control", "Roon-Steuerung aktivieren"),
+                     "field": {"checkbox": {"value": bool(v.get("roon_enabled", s.roon_enabled))}}})
+
+    # input for Roon: inputs of the first receiver
+    items = [{"id": "", "label": _text("(don't switch input)", "(Eingang nicht umschalten)")}]
+    device = next(iter(config.devices.all()), None) if config.devices else None
+    entries = list(device.inputs) if device and device.inputs else names.default_inputs()
+    for code, name in entries:
+        items.append({"id": code, "label": _text(f"{name} ({code})")})
+    current = str(v.get("roon_source", s.roon_source))
+    if current and current not in [i["id"] for i in items]:
+        items.append({"id": current, "label": _text(current)})
+    settings.append({"id": "roon_source", "label": _text("Input for Roon", "Eingang für Roon"),
+                     "field": {"dropdown": {"value": current, "items": items}}})
+    settings.append({"id": "roon_volume_max", "label": _text("Max. volume from Roon (0-80)", "Max. Lautstärke aus Roon (0-80)"),
+                     "field": {"number": {"value": int(v.get("roon_volume_max", s.roon_volume_max)), "min": 1, "max": 80}}})
+    settings.append({"id": "keep_awake", "label": _text("Keep the Remote awake while Roon plays", "Remote wach halten, solange Roon spielt"),
+                     "field": {"checkbox": {"value": bool(v.get("keep_awake", s.keep_awake))}}})
+    settings.append({"id": "min_battery", "label": _text("…but only above battery level (%)", "…aber nur ab Akkustand (%)"),
+                     "field": {"number": {"value": int(v.get("min_battery", s.min_battery)), "min": 0, "max": 100}}})
+    key_state = (
+        _text("An API key exists. Only enter the PIN to create a new one.", "Ein API-Key ist vorhanden. PIN nur eingeben, um einen neuen anzulegen.")
+        if s.core_api_key
+        else _text(
+            "Needed once to keep the Remote awake: the PIN is shown on the Remote under Settings → Web configurator. "
+            "The integration creates an API key with it; the PIN itself is not stored.",
+            "Einmalig nötig, um die Remote wach zu halten: Die PIN steht auf der Remote unter Einstellungen → Web-Configurator. "
+            "Die Integration legt damit einen API-Key an, die PIN selbst wird nicht gespeichert.",
+        )
+    )
+    settings.append(_label("pin_info", _text("Web configurator PIN", "Web-Configurator-PIN"), key_state))
+    settings.append({"id": "pin", "label": _text("Web configurator PIN", "Web-Configurator-PIN"), "field": {"password": {"value": ""}}})
+    settings.append({"id": "roon_zone", "label": _text("Roon zone (optional, default: zones using the Onkyo)", "Roon-Zone (optional, Standard: Zonen mit dem Onkyo)"),
+                     "field": {"text": {"value": str(v.get("roon_zone", s.roon_zone))}}})
+    settings.append({"id": "roon_core", "label": _text("Roon Core address (optional, default: auto)", "Roon-Core-Adresse (optional, Standard: automatisch)"),
+                     "field": {"text": {"value": str(v.get("roon_core", s.roon_core))}}})
+    settings.append({"id": "core_api_url", "label": _text("Remote Core API (advanced)", "Core-API der Remote (Experten)"),
+                     "field": {"text": {"value": str(v.get("core_api_url", s.core_api_url))}}})
+    return ucapi.RequestUserInput(_text("Roon & standby", "Roon & Standby"), settings)
+
+
+def _to_int(value: Any, default: int) -> int:
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
+def _host_port(raw: str) -> str:
+    """'http://10.0.0.5:9330/' -> '10.0.0.5:9330' (port kept, unlike normalize_address)."""
+    text = raw.strip()
+    if "://" in text:
+        text = text.split("://", 1)[1]
+    return text.split("/", 1)[0].strip()
+
+
+def _bool(value: Any) -> bool:
+    return str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
+async def _save_roon(values: dict[str, Any]):
+    get_settings, apply_settings, in_container = settings_hooks
+    if in_container:
+        return ucapi.SetupComplete()
+    old = get_settings()
+    new = integration_settings.IntegrationSettings(
+        roon_enabled=_bool(values.get("roon_enabled", False)),
+        roon_source=str(values.get("roon_source", "") or "").strip().upper(),
+        roon_volume_max=max(1, min(80, _to_int(values.get("roon_volume_max"), 80))),
+        roon_zone=str(values.get("roon_zone", "") or "").strip(),
+        roon_core=_host_port(str(values.get("roon_core", "") or "")),
+        keep_awake=_bool(values.get("keep_awake", False)),
+        min_battery=max(0, min(100, _to_int(values.get("min_battery"), 30))),
+        core_api_url=str(values.get("core_api_url", "") or "").strip() or "http://127.0.0.1",
+        core_api_key=old.core_api_key if str(values.get("core_api_url", "") or "").strip() in ("", old.core_api_url) else "",
+    )
+    pin = str(values.get("pin", "") or "").strip()
+    if new.roon_enabled and new.keep_awake and (pin or not new.core_api_key):
+        if not pin:
+            return _roon_form(
+                "Zum Wachhalten wird einmalig die Web-Configurator-PIN gebraucht (oder „wach halten“ abwählen). / "
+                "The web configurator PIN is needed once to keep the Remote awake (or untick keep awake).",
+                values,
+            )
+        try:
+            api = CoreApi(new.core_api_url)
+            new.core_api_key = await api.create_api_key(pin)
+            await api.battery()  # proves the key works
+        except (CoreApiError, ValueError) as e:
+            msg = "PIN falsch / wrong PIN" if getattr(e, "status", None) == 401 else str(e)
+            return _roon_form(f"Core-API der Remote: {msg}", values)
+    await apply_settings(new)
+    _LOG.info("Roon settings saved (enabled: %s, keep awake: %s)", new.roon_enabled, new.keep_awake)
+    return ucapi.SetupComplete()
+
+
 async def _handle_action(action: str):
+    if action == "roon":
+        return _roon_form()
     if action == "add":
         return _device_form()
     kind, _, device_id = action.partition(":")
@@ -293,6 +437,8 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
             return await _start_device(values.get("series", "TX-NR6xx"), values["address"], str(values.get("name", "")).strip())
         if "inputs" in values or "modes" in values:
             return _save_names(values)
+        if "roon_enabled" in values or "container" in values:
+            return await _save_roon(values)
 
     _LOG.warning("Unexpected setup message: %s", type(msg).__name__)
     return ucapi.SetupError()

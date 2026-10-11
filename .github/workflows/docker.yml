@@ -1,0 +1,57 @@
+name: Docker image
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python (for tests)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run tests (mock receiver + mock Roon core)
+        run: |
+          python -m pip install -r requirements.txt websockets
+          python tests/test_e2e.py
+          python tests/test_roon.py
+          python tests/test_remote_roon.py
+
+      - name: Version from driver.json
+        id: version
+        run: echo "VERSION=$(jq -r .version driver.json)" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/onkyo-remotetwo:latest
+            ghcr.io/${{ github.repository_owner }}/onkyo-remotetwo:${{ steps.version.outputs.VERSION }}

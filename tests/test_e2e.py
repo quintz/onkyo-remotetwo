@@ -165,7 +165,7 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
         async with websockets.connect(f"ws://127.0.0.1:{WS_PORT}/ws") as ws:
             r = Remote(ws)
             ver = (await r.req("get_driver_version"))["msg_data"]["version"]["driver"]
-            check(ver == "0.5.0", f"driver version {ver}")
+            check(ver == "0.7.0", f"driver version {ver}")
 
             ev = await r.setup_step("setup_driver", {"reconfigure": False, "setup_data": {"series": "TX-NR6xx", "address": "http://127.0.0.1/", "name": "Wohnzimmer"}})
             s = settings_of(ev)
@@ -221,7 +221,7 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
             # reconfigure: edit names, applied without reconnect
             ev = await r.setup_step("setup_driver", {"reconfigure": True, "setup_data": {}})
             items = [i["id"] for i in settings_of(ev)["action"]["field"]["dropdown"]["items"]]
-            check(items == ["edit:127_0_0_1", "add", "remove:127_0_0_1"], "reconfigure offers edit/add/remove")
+            check(items == ["edit:127_0_0_1", "roon", "add", "remove:127_0_0_1"], "reconfigure offers edit/roon/add/remove")
             ev = await r.setup_step("set_driver_user_data", {"input_values": {"action": "edit:127_0_0_1"}})
             txt = settings_of(ev)["inputs"]["field"]["textarea"]["value"]
             check("02 = PlayStation" in txt and "25 = AM" not in txt, "edit shows saved lists")

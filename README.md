@@ -96,6 +96,66 @@ Activities created with older versions keep working: the old names (e.g. `NETWOR
 - D-Pad Navigation
 - Playback Controls (Play/Pause/Stop/Next/Previous)
 
+## Roon directly on the Remote (0.7.0+)
+
+Roon control can also run **inside the integration on the Remote**, no extra server needed:
+
+1. Run the integration setup again → **Roon & standby settings**
+2. Enable Roon control, choose the input for Roon and the max. volume
+3. Optional: **Keep the Remote awake while Roon plays**. Enter the **web configurator PIN** once (shown on the Remote under Settings → Web configurator). The integration creates an API key with it; the PIN is not stored.
+4. In Roon: Settings → Extensions → enable "Onkyo AVR (Remote Two integration)", then choose it as Volume / Source Control in the zone
+
+How it behaves:
+
+- **In the dock** the Remote doesn't go to standby, so Roon control is always available.
+- **On battery**, while Roon plays in the zone using the Onkyo, the integration sets a *temporary* standby inhibitor (5 min) and renews it every 2 min. If the integration stops or the Remote loses the connection, the inhibitor simply expires, so the Remote can't be kept awake forever. Below the configured battery level it isn't set.
+- **If the Remote is already asleep** when you start Roon (e.g. from the phone), Roon can't reach it; volume control appears as soon as the Remote wakes up. If you need Roon control independent of the Remote, use the container below.
+- The Remote's Core API is reached at `http://127.0.0.1` by default. If the setup reports it as not reachable, enter the Remote's IP address in the field *Remote Core API*.
+
+## Roon control & Docker container (0.6.0+)
+
+The same code can run as a **Docker container** (e.g. on Proxmox) and offer the receiver to **Roon** as *Volume Control* and *Source Control*, a drop-in replacement for [roon-extension-onkyo](https://github.com/quintz/roon-extension-onkyo):
+
+- Volume slider / +/- and mute in the Roon zone (in receiver steps, optionally capped)
+- Source control: Roon turns the receiver on and switches to the Roon input ("convenience switch"), standby turns it off; the zone shows whether the receiver is on the Roon input
+- Status in Roon → Settings → Extensions
+
+### Modes
+
+| `MODE` | What runs in the container | Remote uses |
+|---|---|---|
+| `roon` (default, **recommended**) | Roon bridge only | the integration **installed on the Remote** |
+| `full` | Remote integration (found via mDNS) **and** Roon | the integration **in the container** |
+
+**Why `roon` is recommended (fallback):** with `MODE=roon` the Remote never depends on the container. If Proxmox is down, the Remote still controls the receiver; only Roon loses its volume control. The Remote has no automatic failover between two integrations: a second integration creates its own entities, and activities point to exactly one of them. So the robust split is "Remote → own integration, Roon → container".
+
+`MODE=full` saves the second receiver connection and the install on the Remote, but if the container is down, the Remote can't control the receiver either. In this mode receivers stay connected permanently (no disconnect on Remote standby).
+
+### Setup (Proxmox: Docker in an LXC with `nesting=1`, or a VM)
+
+```sh
+mkdir onkyo && cd onkyo
+curl -O https://raw.githubusercontent.com/quintz/onkyo-remotetwo/main/docker-compose.yml
+# edit ONKYO_HOST, ROON_SOURCE
+docker compose up -d
+```
+
+Then in Roon: **Settings → Extensions → "Onkyo AVR (Remote Two integration)" → Enable**, and in the zone: **Device Setup → Volume Control / Source Control → Onkyo**. Disable the old Node.js extension, otherwise there are two Onkyo controls.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MODE` | `roon` | `roon` or `full` |
+| `ONKYO_HOST` | – | receiver IP (`MODE=roon`) |
+| `ONKYO_NAME` | `Onkyo` | name in Roon |
+| `ROON_SOURCE` | – | input Roon switches to: code (`11`) or name (`STRM BOX`, `BD/DVD`, `NET`, own names) |
+| `ROON_VOLUME_MAX` | `80` | upper limit of the Roon volume slider |
+| `ROON_VOLUME_STEP` | `1` | step for +/- in Roon |
+| `ROON_CORE` | auto | `host[:port]` if discovery doesn't find the core |
+| `DATA_DIR` | `/data` | Roon token, UC config (`MODE=full`) |
+| `LOG_LEVEL` | `INFO` | `DEBUG` for details |
+
+Host networking (`network_mode: host`) is required for Roon discovery and mDNS. The image is built by GitHub Actions for amd64 and arm64: `ghcr.io/quintz/onkyo-remotetwo`.
+
 ## Trademark notice
 
 ONKYO® and the ONKYO logo are registered trademarks of Onkyo and/or their respective owner. The logo is used only to identify the supported receivers (as the integration icon in the Remote and in this README). This project is an independent community project and is not affiliated with, endorsed or sponsored by Onkyo. The logo files in `assets/` are **not** covered by the project license.
