@@ -27,8 +27,10 @@ This integration uses the eISCP (Ethernet Integra Serial Control Protocol) to co
 This integration should work with most Onkyo receivers that support network control via eISCP protocol, including:
 
 - TX-NR series (e.g., TX-NR696, TX-NR686, TX-NR676)
-- TX-RZ series
+- TX-RZ series (e.g., TX-RZ50, TX-RZ70, TX-RZ720)
 - And many others with network capabilities
+
+In the setup, the receiver series is set automatically if the receiver reports its model. If your model isn't listed, pick **Other Onkyo / Integra receiver**.
 
 ## Requirements
 

@@ -10,7 +10,7 @@ from enum import IntEnum
 # =============================================================================
 # Version
 # =============================================================================
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 
 # =============================================================================
@@ -44,56 +44,61 @@ class States:
 # =============================================================================
 RECEIVER_SERIES = {
     "TX-NR5xx": {
-        "name": "TX-NR5xx Serie",
-        "label": "TX-NR5xx (z.B. NR555, NR575, NR579)",
-        "description": "Onkyo TX-NR 500er Serie",
+        "name": "TX-NR5xx",
+        "label": {"en": "TX-NR5xx (e.g. NR555, NR575, NR579)", "de": "TX-NR5xx (z. B. NR555, NR575, NR579)"},
         "models": ["TX-NR555", "TX-NR575", "TX-NR575E", "TX-NR579"],
         "supported_sets": ["set1", "set2", "set3", "set4", "set6", "set7", "set11"],
     },
     "TX-NR6xx": {
-        "name": "TX-NR6xx Serie",
-        "label": "TX-NR6xx (z.B. NR616, NR656, NR676, NR696)",
-        "description": "Onkyo TX-NR 600er Serie",
+        "name": "TX-NR6xx",
+        "label": {"en": "TX-NR6xx (e.g. NR616, NR656, NR676, NR696)", "de": "TX-NR6xx (z. B. NR616, NR656, NR676, NR696)"},
         "models": ["TX-NR609", "TX-NR616", "TX-NR626", "TX-NR636", "TX-NR646", "TX-NR656", "TX-NR676", "TX-NR686", "TX-NR696"],
         "supported_sets": ["set1", "set2", "set3", "set4", "set6", "set7", "set11"],
     },
     "TX-NR7xx": {
-        "name": "TX-NR7xx Serie", 
-        "label": "TX-NR7xx (z.B. NR717, NR747, NR777)",
-        "description": "Onkyo TX-NR 700er Serie",
+        "name": "TX-NR7xx",
+        "label": {"en": "TX-NR7xx (e.g. NR717, NR747, NR777)", "de": "TX-NR7xx (z. B. NR717, NR747, NR777)"},
         "models": ["TX-NR708", "TX-NR709", "TX-NR717", "TX-NR727", "TX-NR737", "TX-NR747", "TX-NR757", "TX-NR777", "TX-NR787", "TX-NR797"],
         "supported_sets": ["set1", "set2", "set3", "set4", "set6", "set7", "set8", "set11"],
     },
     "TX-RZxxx": {
-        "name": "TX-RZ Serie",
-        "label": "TX-RZxxx (z.B. RZ610, RZ720, RZ810)",
-        "description": "Onkyo TX-RZ Serie (High-End)",
-        "models": ["TX-RZ610", "TX-RZ620", "TX-RZ710", "TX-RZ720", "TX-RZ800", "TX-RZ810", "TX-RZ820", "TX-RZ900", "TX-RZ1100", "TX-RZ3100"],
+        "name": "TX-RZ",
+        "label": {"en": "TX-RZ (e.g. RZ50, RZ70, RZ720, RZ840)", "de": "TX-RZ (z. B. RZ50, RZ70, RZ720, RZ840)"},
+        "models": [
+            "TX-RZ30", "TX-RZ50", "TX-RZ70", "TX-RZ610", "TX-RZ620", "TX-RZ630", "TX-RZ710", "TX-RZ720",
+            "TX-RZ730", "TX-RZ800", "TX-RZ810", "TX-RZ820", "TX-RZ830", "TX-RZ840", "TX-RZ900", "TX-RZ1100", "TX-RZ3100",
+        ],
         "supported_sets": ["set1", "set2", "set3", "set6", "set7", "set8", "set9", "set11"],
     },
     "TX-NR8xx-9xx": {
-        "name": "TX-NR8xx/9xx Serie",
-        "label": "TX-NR8xx/9xx (z.B. NR818, NR929)",
-        "description": "Onkyo TX-NR 800er/900er Serie",
+        "name": "TX-NR8xx/9xx",
+        "label": {"en": "TX-NR8xx/9xx (e.g. NR818, NR929)", "de": "TX-NR8xx/9xx (z. B. NR818, NR929)"},
         "models": ["TX-NR807", "TX-NR808", "TX-NR809", "TX-NR818", "TX-NR828", "TX-NR838", "TX-NR900", "TX-NR901", "TX-NR905", "TX-NR906", "TX-NR929"],
         "supported_sets": ["set1", "set3", "set7", "set8", "set9", "set11"],
     },
     "GENERIC": {
-        "name": "Andere / Unbekannt",
-        "label": "Andere Onkyo Receiver",
-        "description": "Basis-Befehle für alle Onkyo Receiver",
+        "name": "Other",
+        "label": {"en": "Other Onkyo / Integra receiver", "de": "Anderer Onkyo-/Integra-Receiver"},
         "models": [],
-        "supported_sets": ["set1"],  # Nur Basis-Befehle
+        "supported_sets": ["set1"],  # basic commands only
     },
 }
 
 
+def series_for_model(model: str) -> str | None:
+    """Series id for a model name reported by the receiver (e.g. 'TX-RZ50'), None if unknown."""
+    model = (model or "").strip().upper()
+    for series_id, info in RECEIVER_SERIES.items():
+        if model in info["models"]:
+            return series_id
+    if model.startswith("TX-RZ"):
+        return "TX-RZxxx"
+    return None
+
+
 def get_series_choices() -> list:
     """Get list of receiver series for setup dropdown."""
-    return [
-        {"id": series_id, "label": {"en": info["label"], "de": info["label"]}}
-        for series_id, info in RECEIVER_SERIES.items()
-    ]
+    return [{"id": series_id, "label": dict(info["label"])} for series_id, info in RECEIVER_SERIES.items()]
 
 
 def get_supported_sets(series_id: str) -> list:

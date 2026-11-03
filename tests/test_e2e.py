@@ -165,11 +165,18 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
         async with websockets.connect(f"ws://127.0.0.1:{WS_PORT}/ws") as ws:
             r = Remote(ws)
             ver = (await r.req("get_driver_version"))["msg_data"]["version"]["driver"]
-            check(ver == "0.8.0", f"driver version {ver}")
+            check(ver == "0.8.1", f"driver version {ver}")
 
             ev = await r.setup_step("setup_driver", {"reconfigure": False, "setup_data": {}})
             check({"series", "address", "name"} <= set(settings_of(ev)), "fresh setup: driver shows the receiver form")
-            ev = await r.setup_step("set_driver_user_data", {"input_values": {"series": "TX-NR6xx", "address": "http://127.0.0.1/", "name": "Wohnzimmer"}})
+            series_labels = {i["id"]: i["label"] for i in settings_of(ev)["series"]["field"]["dropdown"]["items"]}
+            check(series_labels["GENERIC"]["en"] == "Other Onkyo / Integra receiver" and "Anderer" in series_labels["GENERIC"]["de"],
+                  "series labels translated (en/de)")
+            check("RZ50" in series_labels["TX-RZxxx"]["en"], "TX-RZ50 listed as example")
+            # The Remote may send the values of earlier pages along with the current page (issue: names page
+            # came back endlessly). Simulate that for every following page.
+            page1 = {"series": "GENERIC", "address": "http://127.0.0.1/", "name": "Wohnzimmer"}
+            ev = await r.setup_step("set_driver_user_data", {"input_values": page1})
             s = settings_of(ev)
             inputs_text = s["inputs"]["field"]["textarea"]["value"]
             check("10 = Apple TV" in inputs_text and "02 = PS5" in inputs_text, "names form prefilled with receiver names (NRI)")
@@ -177,16 +184,19 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
             check("TX-NR686" in s["status"]["field"]["label"]["value"]["de"], "model detected")
             check("80 = Dolby Atmos/Surround" in s["modes"]["field"]["textarea"]["value"], "modern listening mode names")
 
-            ev = await r.setup_step("set_driver_user_data", {"input_values": {"inputs": "10 = Apple TV\nfoo = bar", "modes": "00", "naming": "modern"}})
+            ev = await r.setup_step("set_driver_user_data", {"input_values": {**page1, "inputs": "10 = Apple TV\nfoo = bar", "modes": "00", "naming": "modern"}})
             check("error" in settings_of(ev), "invalid line -> form again with error")
+            check("Unknown code" in settings_of(ev)["error"]["field"]["label"]["value"]["en"]
+                  and "Unbekannter" in settings_of(ev)["error"]["field"]["label"]["value"]["de"], "error message translated")
 
             new_inputs = inputs_text.replace("02 = PS5", "02 = PlayStation").replace("25 = AM\n", "")
             new_modes = "80 = Kino\n82 = DTS Neural:X\n00 = Stereo\nPURE DIRECT\n03\n05"
-            ev = await r.setup_step("set_driver_user_data", {"input_values": {"inputs": new_inputs, "modes": new_modes, "naming": "modern"}})
+            names_values = {"inputs": new_inputs, "modes": new_modes, "naming": "modern"}
+            ev = await r.setup_step("set_driver_user_data", {"input_values": {**page1, **names_values}})
             roon_page = settings_of(ev)
             check("roon_enabled" in roon_page and "optional" in roon_page, "first setup offers the optional Roon page")
             check(roon_page["roon_enabled"]["field"]["checkbox"]["value"] is False, "Roon is off by default")
-            ev = await r.setup_step("set_driver_user_data", {"input_values": {"roon_enabled": "false", "keep_awake": "true", "pin": "",
+            ev = await r.setup_step("set_driver_user_data", {"input_values": {**page1, **names_values, "roon_enabled": "false", "keep_awake": "true", "pin": "",
                                                                              "roon_source": "", "roon_volume_max": "80", "min_battery": "30",
                                                                              "roon_zone": "", "roon_core": "", "core_api_url": "http://127.0.0.1"}})
             check(ev["state"] == "OK", "setup completed (Roon skipped)")
@@ -235,7 +245,8 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
             txt = settings_of(ev)["inputs"]["field"]["textarea"]["value"]
             check("02 = PlayStation" in txt and "25 = AM" not in txt, "edit shows saved lists")
             mark = len(r.events)
-            ev = await r.setup_step("set_driver_user_data", {"input_values": {"inputs": txt + "\n2D = AirPlay", "modes": new_modes, "naming": "modern"}})
+            ev = await r.setup_step("set_driver_user_data", {"input_values": {"action": "edit:127_0_0_1", "inputs": txt + "\n2D = AirPlay",
+                                                                             "modes": new_modes, "naming": "modern"}})
             check(ev["state"] == "OK", "reconfigure saved")
             e = await r.wait_event(lambda e: e["msg"] == "entity_change" and e["msg_data"]["entity_id"] == SEL_IN
                                    and "AirPlay" in e["msg_data"]["attributes"].get("options", []), label="options updated", since=mark)
@@ -291,6 +302,7 @@ async def scenario_fresh_setup(rx: MockReceiver, cfg_dir: str):
         proc.terminate()
         proc.wait(5)
     cfg = json.load(open(os.path.join(cfg_dir, "config.json")))["devices"][0]
+    check(cfg["series"] == "TX-NR6xx", "series set from detected model (Other selected)")
     check(cfg["modern"] is True and cfg["model"] == "TX-NR686" and ["02", "PlayStation"] in cfg["inputs"], "config.json stores names")
 
 

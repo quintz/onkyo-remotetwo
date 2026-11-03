@@ -26,7 +26,7 @@ import settings as integration_settings
 import ucapi
 from power import CoreApi, CoreApiError
 from config import AvrDevice
-from const import RECEIVER_SERIES
+from const import RECEIVER_SERIES, get_series_choices, series_for_model
 
 _LOG = logging.getLogger(__name__)
 
@@ -41,8 +41,11 @@ learn_hooks: tuple | None = None
 
 # Step 1 data kept until the names form is submitted.
 _pending: dict[str, Any] = {}
-# Current page ("device", "names", "roon", "action") - lets us finish pages whose
-# submitted values carry no input fields (e.g. the info-only page in the container).
+# Page shown last ("device", "names", "roon", "action", "learn_wait", "learn_names").
+# Submitted values are dispatched by this page, not by the field ids they contain:
+# the Remote may send the values of earlier pages along (e.g. "address" from the
+# receiver page together with "inputs" from the names page), which made the
+# names page come back endlessly in 0.8.0.
 _step = ""
 
 _HELP = {
@@ -61,6 +64,11 @@ _HELP = {
 
 def _text(en: str, de: str | None = None) -> dict[str, str]:
     return {"en": en, "de": de if de is not None else en}
+
+
+def _msg(text: str | dict[str, str]) -> dict[str, str]:
+    """Error text: either already translated ({"en", "de"}) or one text for both."""
+    return dict(text) if isinstance(text, dict) else _text(text)
 
 
 def _label(field_id: str, title: dict[str, str], value: dict[str, str]) -> dict[str, Any]:
@@ -83,14 +91,24 @@ def normalize_address(raw: str) -> str:
 # =============================================================================
 
 
-def _device_form(error: str | None = None, series: str = "TX-NR6xx", address: str = "", name: str = "Onkyo AVR"):
-    """Receiver form (same fields as driver.json), used for 'add' and errors."""
+def _device_form(error: str | dict[str, str] | None = None, series: str = "TX-NR6xx", address: str = "", name: str = "Onkyo AVR"):
+    """Receiver form: series, IP address, name."""
+    global _step
+    _step = "device"
     settings: list[dict[str, Any]] = []
     if error:
-        settings.append(_label("error", _text("Error", "Fehler"), _text(error)))
-    series_items = [{"id": sid, "label": _text(info["label"])} for sid, info in RECEIVER_SERIES.items()]
+        settings.append(_label("error", _text("Error", "Fehler"), _msg(error)))
+    series_items = get_series_choices()
+    if series not in RECEIVER_SERIES:
+        series = "GENERIC"
     settings += [
-        {"id": "series", "label": _text("Receiver Series", "Receiver Serie"), "field": {"dropdown": {"value": series, "items": series_items}}},
+        {"id": "series", "label": _text("Receiver series", "Receiver-Serie"), "field": {"dropdown": {"value": series, "items": series_items}}},
+        _label("series_info", _text("Series", "Serie"), _text(
+            "If the receiver reports its model, the matching series is set automatically. "
+            "Not listed? Pick \"Other\" - all receivers that can be controlled over the network work.",
+            "Meldet der Receiver sein Modell, wird die passende Serie automatisch gesetzt. "
+            "Nicht dabei? \"Anderer\" wählen – es funktioniert jeder netzwerkfähige Receiver.",
+        )),
         {"id": "address", "label": _text("IP Address", "IP-Adresse"), "field": {"text": {"value": address}}},
         {"id": "name", "label": _text("Name"), "field": {"text": {"value": name}}},
     ]
@@ -99,6 +117,8 @@ def _device_form(error: str | None = None, series: str = "TX-NR6xx", address: st
 
 def _action_form():
     """Reconfigure: what to do."""
+    global _step
+    _step = "action"
     items = []
     for dev in config.devices.all():
         items.append({"id": f"edit:{dev.id}", "label": _text(f"Edit names: {dev.name} ({dev.address})", f"Namen bearbeiten: {dev.name} ({dev.address})")})
@@ -119,14 +139,16 @@ def _other_codes(used: list[tuple[str, str]], table: dict[str, str]) -> str:
     return ", ".join(f"`{c}` {n}" for c, n in table.items() if c not in used_codes)
 
 
-def _names_form(error: str | None = None):
+def _names_form(error: str | dict[str, str] | None = None):
     """Step 2: editable input / listening mode lists."""
+    global _step
+    _step = "names"
     p = _pending
     modern = p["modern"]
     mode_table = names.MODE_NAMES_MODERN if modern else names.MODE_NAMES_LEGACY
     settings: list[dict[str, Any]] = []
     if error:
-        settings.append(_label("error", _text("Error", "Fehler"), _text(error)))
+        settings.append(_label("error", _text("Error", "Fehler"), _msg(error)))
     settings.append(_label("status", _text("Receiver"), p["status"]))
     settings.append(_label("help", _text("How it works", "So geht's"), _HELP))
     settings.append({"id": "inputs", "label": _text("Inputs", "Eingänge"), "field": {"textarea": {"value": p["inputs_text"]}}})
@@ -164,7 +186,7 @@ async def _start_device(series: str, address: str, name: str, existing: AvrDevic
     """After step 1: read receiver info and show the names form."""
     address = normalize_address(address)
     if not address:
-        return _device_form("Bitte die IP-Adresse eingeben. / Please enter the IP address.", series, address, name)
+        return _device_form(_text("Please enter the IP address.", "Bitte die IP-Adresse eingeben."), series, address, name)
     device_id = address.replace(".", "_")
     if existing is None and config.devices is not None:
         existing = config.devices.get(device_id)
@@ -208,6 +230,11 @@ async def _start_device(series: str, address: str, name: str, existing: AvrDevic
             "Der Receiver hat keine Eingangsliste geliefert (nicht erreichbar oder Modell zu alt). Es wird die Standardliste verwendet.",
         )
 
+    detected_series = series_for_model(info.model) if info is not None else None
+    if detected_series and detected_series != series:
+        _LOG.info("Series %s detected from model %s (selected: %s)", detected_series, info.model, series)
+        series = detected_series
+
     _pending.clear()
     _pending.update(
         {
@@ -241,7 +268,7 @@ def _save_names(values: dict[str, Any]):
     if bad_inputs or bad_modes:
         _pending.update({"inputs_text": inputs_text, "modes_text": modes_text, "modern": modern})
         bad = "; ".join(bad_inputs + bad_modes)
-        return _names_form(f"Unbekannter Code oder Name in: {bad} / Unknown code or name in: {bad}")
+        return _names_form(_text(f"Unknown code or name in: {bad}", f"Unbekannter Code oder Name in: {bad}"))
 
     device = AvrDevice(
         id=_pending["id"],
@@ -255,6 +282,8 @@ def _save_names(values: dict[str, Any]):
         modern=modern,
     )
     _pending.clear()
+    global _step
+    _step = ""
     if config.devices is None:
         _LOG.error("config.devices not initialized")
         return ucapi.SetupError()
@@ -272,7 +301,7 @@ def _save_names(values: dict[str, Any]):
 # =============================================================================
 
 
-def _roon_form(error: str | None = None, values: dict[str, Any] | None = None, first_setup: bool = False):
+def _roon_form(error: str | dict[str, str] | None = None, values: dict[str, Any] | None = None, first_setup: bool = False):
     """Roon on the Remote + keep awake while Roon plays."""
     global _step
     _step = "roon"
@@ -281,7 +310,7 @@ def _roon_form(error: str | None = None, values: dict[str, Any] | None = None, f
     v = values or {}
     settings: list[dict[str, Any]] = []
     if error:
-        settings.append(_label("error", _text("Error", "Fehler"), _text(error)))
+        settings.append(_label("error", _text("Error", "Fehler"), _msg(error)))
     if in_container:
         settings.append(
             _label(
@@ -404,8 +433,10 @@ async def _save_roon(values: dict[str, Any]):
     if new.roon_enabled and new.keep_awake and (pin or not new.core_api_key):
         if not pin:
             return _roon_form(
-                "Zum Wachhalten wird einmalig die Web-Configurator-PIN gebraucht (oder „wach halten“ abwählen). / "
-                "The web configurator PIN is needed once to keep the Remote awake (or untick keep awake).",
+                _text(
+                    "The web configurator PIN is needed once to keep the Remote awake (or untick keep awake).",
+                    "Zum Wachhalten wird einmalig die Web-Configurator-PIN gebraucht (oder „wach halten“ abwählen).",
+                ),
                 values,
             )
         try:
@@ -413,8 +444,9 @@ async def _save_roon(values: dict[str, Any]):
             new.core_api_key = await api.create_api_key(pin)
             await api.battery()  # proves the key works
         except (CoreApiError, ValueError) as e:
-            msg = "PIN falsch / wrong PIN" if getattr(e, "status", None) == 401 else str(e)
-            return _roon_form(f"Core-API der Remote: {msg}", values)
+            if getattr(e, "status", None) == 401:
+                return _roon_form(_text("Remote Core API: wrong PIN", "Core-API der Remote: PIN falsch"), values)
+            return _roon_form(_text(f"Remote Core API: {e}", f"Core-API der Remote: {e}"), values)
     await apply_settings(new)
     _LOG.info("Roon settings saved (enabled: %s, keep awake: %s)", new.roon_enabled, new.keep_awake)
     return ucapi.SetupComplete()
@@ -618,16 +650,31 @@ async def driver_setup_handler(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
 
     if isinstance(msg, ucapi.UserDataResponse):
         values = msg.input_values or {}
+        _LOG.info("Setup page %r submitted (fields: %s)", _step or "-", sorted(values))
+        step = _step
+        if step == "action" and "action" in values:
+            return await _handle_action(str(values["action"]))
+        if step in ("learn_wait", "learn_names"):
+            return await _learn_continue(values)
+        if step == "device":
+            return await _start_device(str(values.get("series", "") or "TX-NR6xx"), str(values.get("address", "")),
+                                       str(values.get("name", "")).strip())
+        if step == "names":
+            return _save_names(values)
+        if step == "roon":
+            return await _save_roon(values)
+
+        # No known page (e.g. the driver restarted during the setup): guess from the fields,
+        # most specific page first.
+        if "roon_enabled" in values:
+            return await _save_roon(values)
+        if ("inputs" in values or "modes" in values) and _pending:
+            return _save_names(values)
+        if "address" in values:
+            return await _start_device(str(values.get("series", "") or "TX-NR6xx"), str(values["address"]),
+                                       str(values.get("name", "")).strip())
         if "action" in values:
             return await _handle_action(str(values["action"]))
-        if _step in ("learn_wait", "learn_names"):
-            return await _learn_continue(values)
-        if "address" in values:
-            return await _start_device(values.get("series", "TX-NR6xx"), values["address"], str(values.get("name", "")).strip())
-        if "inputs" in values or "modes" in values:
-            return _save_names(values)
-        if "roon_enabled" in values or _step == "roon":
-            return await _save_roon(values)
 
     _LOG.warning("Unexpected setup message: %s", type(msg).__name__)
     return ucapi.SetupError()
