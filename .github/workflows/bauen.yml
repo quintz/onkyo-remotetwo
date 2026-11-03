@@ -3,6 +3,7 @@ name: Build Integration
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -10,6 +11,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # attach the package to the release on version tags
 
     steps:
       - name: Checkout
@@ -86,3 +89,13 @@ jobs:
           path: ucr2-intg-onkyoavr-${{ steps.version.outputs.VERSION }}.tar.gz
           if-no-files-found: error
           retention-days: 30
+
+      - name: Attach package to release (version tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PKG=ucr2-intg-onkyoavr-${{ steps.version.outputs.VERSION }}.tar.gz
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "See CHANGELOG.md"
+          gh release upload "$TAG" "$PKG" --clobber
