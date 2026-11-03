@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.1] - 2026-11-03
 
 ### Fixed
-- Setup: after the names page (inputs / listening modes) the setup jumped back to the same page instead of finishing. The submitted values were assigned to a page by their field ids, and the Remote may send the values of earlier pages along (`address` from the receiver page), so the receiver page was processed again. The setup now remembers which page it showed and processes the submitted values for exactly that page; the field ids are only a fallback (e.g. after a driver restart during the setup). The same could have affected reconfigure (menu value sent along).
+- Setup: after the names page (inputs / listening modes) the setup jumped back to the same page instead of finishing (#1). The submitted values were assigned to a page by their field ids, and the Remote may send the values of earlier pages along (`address` from the receiver page), so the receiver page was processed again. The setup now remembers which page it showed and processes the submitted values for exactly that page; the field ids are only a fallback (e.g. after a driver restart during the setup). The same could have affected reconfigure (menu value sent along).
 - Setup texts were partly German only: receiver series labels ("Andere Onkyo Receiver", "z.B. …") and error messages ("… / …") are now translated (en / de).
 
 ### Changed
